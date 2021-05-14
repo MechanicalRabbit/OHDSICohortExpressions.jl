@@ -164,7 +164,7 @@ end
 
 @unpack struct Endpoint
     "Days" => days::Union{Int, Nothing} = nothing
-    "Coeff" => coeff::Union{Int, Nothing} = nothing
+    "Coeff" => coeff::Int
 end
 
 @unpack struct Window
@@ -194,7 +194,7 @@ end
     "IgnoreObservationPeriod" => ignore_observation_period::Bool = false
     "Occurrence" => occurrence::Union{Occurrence, Nothing} = nothing
     "RestrictVisit" => restrict_visit::Bool = false
-    "StartWindow" => start_window::Union{Window, Nothing} = nothing
+    "StartWindow" => start_window::Window
 end
 
 @unpack struct DemographicCriteria
@@ -267,9 +267,15 @@ abstract type EndStrategy end
     "DaysSupplyOverride" => days_supply_override::Union{Int, Nothing} = nothing
 end
 
+@enum DateField START_DATE END_DATE
+Base.parse(::Type{DateField}, s::String) =
+    s == "StartDate" ? START_DATE :
+    s == "EndDate" ? END_DATE :
+    throw(DomainError(s, "Unknown Date Field"))
+
 @unpack struct DateOffsetStrategy <: EndStrategy
     "Offset" => offset::Integer
-    "DateField" => date_field::String
+    "DateField" => date_field::DateField
 end
 
 function unpack!(::Type{EndStrategy}, data::Dict)
@@ -297,8 +303,16 @@ end
     "PostDays" => post_days::Int = 0
 end
 
+@enum ResultLimitType FIRST LAST ALL
+Base.parse(::Type{ResultLimitType}, s::Union{String, Nothing}) =
+    s == "First" ? FIRST :
+    s == "Last" ? LAST :
+    s == "All" ? ALL :
+    isnothing(s) ? FIRST :
+        throw(DomainError(s, "Unknown Result Limit Type"))
+
 @unpack struct ResultLimit
-    "Type" => type::String = "First"
+    "Type" => type::ResultLimitType = FIRST
 end
 
 @unpack struct PrimaryCriteria
