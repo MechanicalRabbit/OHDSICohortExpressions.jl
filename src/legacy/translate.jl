@@ -40,7 +40,6 @@ translate(cohort::CohortExpression, dialect, model) =
     translate(cohort, TranslateContext(dialect, model, cohort))
 
 function translate(c::CohortExpression, ctx::TranslateContext)
-    pprintln(c)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy isa DateOffsetStrategy
@@ -49,13 +48,15 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.qualified_limit.type == ALL
     q = translate(c.primary_criteria, ctx)
     q = q |>
-        translate(c.end_strategy, ctx)
-    q = q |>
         translate(c.additional_criteria, ctx)
+    q = q |>
+        translate(c.end_strategy, ctx)
     q = q |>
         translate(c.collapse_settings, ctx)
     q = q |>
-        Select(Get.person_id, Get.start_date, Get.end_date)
+        Select(:subject_id => Get.person_id,
+               :cohort_start_date => Get.start_date,
+               :cohort_end_date => Get.end_date)
     q
 end
 
@@ -67,7 +68,9 @@ function translate(d::DateOffsetStrategy, ctx::TranslateContext)
         d.date_field == START_DATE ? Get.start_date :
         d.date_field == END_DATE ? Get.end_date :
         nothing
-    Define(:end_date => dateadd_day(field, d.offset))
+    Define(:end_date => dateadd_day(field, d.offset)) |>
+    Define(:end_date => Fun.case(Get.end_date .<= Get.op.end_date,
+                                 Get.end_date, Get.op.end_date))
 end
 
 function dateadd_day(n, delta::Integer)
@@ -133,8 +136,12 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.occurrence_start_date === nothing
     @assert isempty(b.provider_specialty)
     @assert isempty(b.visit_type)
+    #=
     Where(Fun.in(Get.concept_id,
                  translate(find_concept_set(b.codeset_id, ctx), ctx)))
+    =#
+    Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
+         Get.concept_id .== Get.concept.concept_id)
 end
 
 function translate(c::CriteriaGroup, ctx::TranslateContext)
