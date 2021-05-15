@@ -2,7 +2,7 @@ using JSON
 using PrettyPrinting
 using FunSQL:
     FunSQL, Define, From, FUN, OP, Fun, FunctionNode, Get, Join, LeftJoin,
-    Select, Where, Partition, Agg, Group, As
+    Select, Where, Partition, Agg, Group, As, Var, Bind
 
 import ..Model, ..Source
 
@@ -16,6 +16,14 @@ function FunSQL.translate(::Val{:dateadd_day}, n::FunctionNode, treq)
         end
     end
     FunSQL.translate_default(n, treq)
+end
+
+function FunSQL.render(ctx, val::Bool)
+    if ctx.dialect.name === :sqlserver
+        print(ctx, val ? 1 : 0)
+    else
+        print(ctx, val ? "TRUE" : "FALSE")
+    end
 end
 
 translate(cohort; dialect, model = Model()) =
@@ -89,6 +97,9 @@ function translate(c::PrimaryCriteria, ctx::TranslateContext)
                     Define(:start_date => Get.observation_period_start_date,
                            :end_date => Get.observation_period_end_date),
              Get.person_id .== Get.op.person_id)
+    q = q |>
+        Define(:op_start_date => Get.op.start_date,
+               :op_end_date => Get.op.end_date)
     l = dateadd_day(Get.op.start_date, c.observation_window.prior_days)
     r = dateadd_day(Get.op.end_date, c.observation_window.post_days)
     q = q |>
@@ -136,12 +147,12 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.occurrence_start_date === nothing
     @assert isempty(b.provider_specialty)
     @assert isempty(b.visit_type)
-    #=
     Where(Fun.in(Get.concept_id,
                  translate(find_concept_set(b.codeset_id, ctx), ctx)))
-    =#
+    #=
     Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
          Get.concept_id .== Get.concept.concept_id)
+    =#
 end
 
 function translate(c::CriteriaGroup, ctx::TranslateContext)
@@ -163,17 +174,46 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
             c.occurrence.count_column === nothing
     @assert c.criteria !== nothing
     q = translate(c.criteria, ctx)
-    q = Join(q |> As(:correlated),
-             Get.person_id .== Get.correlated.person_id)
-    q = q |>
-        Where(Fun.and(Get.op.start_date .<= Get.correlated.start_date,
-                      Get.correlated.start_date .<= Get.op.end_date))
-    q = q |>
-        translate(c.start_window, true, ctx)
-    if c.end_window !== nothing
+    if ctx.dialect === :redshift
+        q = Join(q |> As(:correlated),
+                 Get.person_id .== Get.correlated.person_id)
         q = q |>
-        translate(c.end_window, false, ctx)
+            Where(Fun.and(Get.op.start_date .<= Get.correlated.start_date,
+                          Get.correlated.start_date .<= Get.op.end_date))
+        q = q |>
+            translate(c.start_window, true, ctx)
+        if c.end_window !== nothing
+            q = q |>
+            translate(c.end_window, false, ctx)
+        end
+    else
+        q = q |>
+            As(:correlated) |>
+            Where(Get.correlated.person_id .== Var.person_id)
+        q = q |>
+            Define(:start_date => Var.start_date,
+                   :end_date => Var.end_date,
+                   :op_start_date => Var.op_start_date,
+                   :op_end_date => Var.op_end_date)
+        q = q |>
+            Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
+                          Get.correlated.start_date .<= Get.op_end_date))
+
+        q = q |>
+            translate(c.start_window, true, ctx)
+        if c.end_window !== nothing
+            q = q |>
+            translate(c.end_window, false, ctx)
+        end
+        q = q |>
+            Bind(:person_id => Get.person_id,
+                 :start_date => Get.start_date,
+                 :end_date => Get.end_date,
+                 :op_start_date => Get.op_start_date,
+                 :op_end_date => Get.op_end_date)
+        q = Where(Fun.exists(q))
     end
+    q
 end
 
 function translate(w::Window, start::Bool, ctx::TranslateContext)
@@ -192,16 +232,16 @@ function translate(w::Window, start::Bool, ctx::TranslateContext)
     if w.start.days !== nothing
         l = dateadd_day(index_date_field, w.start.days * w.start.coeff)
     elseif w.start.coeff == -1
-        l = Get.op.start_date
+        l = Get.op_start_date
     else
-        l = Get.op.end_date
+        l = Get.op_end_date
     end
     if w.end_.days !== nothing
         r = dateadd_day(index_date_field, w.end_.days * w.end_.coeff)
     elseif w.end_.coeff == -1
-        r = Get.op.start_date
+        r = Get.op_start_date
     else
-        r = Get.op.end_date
+        r = Get.op_end_date
     end
     args = []
     if l !== nothing
