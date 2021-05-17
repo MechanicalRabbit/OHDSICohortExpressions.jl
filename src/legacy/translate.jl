@@ -52,11 +52,14 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
     @assert c.expression_limit.type == ALL || c.expression_limit.type == FIRST
-    @assert isempty(c.inclusion_rules)
     @assert c.qualified_limit.type == ALL || c.additional_criteria === nothing
     q = translate(c.primary_criteria, ctx)
     q = q |>
         translate(c.additional_criteria, ctx)
+    for r in c.inclusion_rules
+        q = q |>
+            translate(r.expression, ctx)
+    end
     q = q |>
         translate(c.expression_limit, ctx)
     if c.end_strategy !== nothing
