@@ -50,15 +50,22 @@ translate(cohort::CohortExpression, dialect, model) =
 function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
     @assert isempty(c.censoring_criteria)
-    @assert c.end_strategy isa DateOffsetStrategy
-    @assert c.expression_limit.type == ALL
+    @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
+    @assert c.expression_limit.type == ALL || c.expression_limit.type == FIRST
     @assert isempty(c.inclusion_rules)
-    @assert c.qualified_limit.type == ALL
+    @assert c.qualified_limit.type == ALL || c.additional_criteria === nothing
     q = translate(c.primary_criteria, ctx)
     q = q |>
         translate(c.additional_criteria, ctx)
     q = q |>
-        translate(c.end_strategy, ctx)
+        translate(c.expression_limit, ctx)
+    if c.end_strategy !== nothing
+        q = q |>
+            translate(c.end_strategy, ctx)
+    else
+        q = q |>
+            Define(:end_date => Get.op_end_date)
+    end
     q = q |>
         translate(c.collapse_settings, ctx)
     q = q |>
@@ -70,6 +77,15 @@ end
 
 translate(::Nothing, ctx::TranslateContext) =
     Define()
+
+function translate(r::ResultLimit, ctx::TranslateContext; order_by = [Get.start_date])
+    if r.type == ALL
+        return Define()
+    end
+    @assert r.type == FIRST
+    Partition(Get.person_id, order_by = order_by) |>
+    Where(Agg.row_number() .== 1)
+end
 
 function translate(d::DateOffsetStrategy, ctx::TranslateContext)
     field =
@@ -90,7 +106,7 @@ end
 
 function translate(c::PrimaryCriteria, ctx::TranslateContext)
     @assert length(c.criteria_list) == 1
-    @assert c.primary_limit.type == ALL
+    @assert c.primary_limit.type == ALL || c.primary_limit.type == FIRST
     q = translate(c.criteria_list[1], ctx)
     q = q |>
         Join(:op => ctx.model.observation_period |>
@@ -104,6 +120,8 @@ function translate(c::PrimaryCriteria, ctx::TranslateContext)
     r = dateadd_day(Get.op.end_date, c.observation_window.post_days)
     q = q |>
         Where(Fun.and(l .<= Get.start_date, Get.start_date .<= r))
+    q = q |>
+        translate(c.primary_limit, ctx, order_by = [Get.sort_date])
     q
 end
 
@@ -115,9 +133,11 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
     @assert c.stop_reason === nothing
     q = From(ctx.model.condition_occurrence) |>
         Define(:concept_id => Get.condition_concept_id,
+               :event_id => Get.condition_occurrence_id,
                :start_date => Get.condition_start_date,
                :end_date => Fun.coalesce(Get.condition_end_date,
-                                         dateadd_day(Get.condition_start_date, 1)))
+                                         dateadd_day(Get.condition_start_date, 1)),
+               :sort_date => Get.condition_start_date)
     q = q |>
         translate(c.base, ctx)
     q
@@ -131,8 +151,10 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
     @assert !v.visit_type_exclude
     q = From(ctx.model.visit_occurrence) |>
         Define(:concept_id => Get.visit_concept_id,
+               :event_id => Get.visit_occurrence_id,
                :start_date => Get.visit_start_date,
-               :end_date => Get.visit_end_date)
+               :end_date => Get.visit_end_date,
+               :sort_date => Get.visit_start_date)
     q = q |>
         translate(v.base, ctx)
     q
@@ -141,18 +163,23 @@ end
 function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.age === nothing
     @assert b.correlated_criteria === nothing
-    @assert !b.first
     @assert isempty(b.gender)
     @assert b.occurrence_end_date === nothing
     @assert b.occurrence_start_date === nothing
     @assert isempty(b.provider_specialty)
     @assert isempty(b.visit_type)
-    Where(Fun.in(Get.concept_id,
-                 translate(find_concept_set(b.codeset_id, ctx), ctx)))
+    q = Where(Fun.in(Get.concept_id,
+                     translate(find_concept_set(b.codeset_id, ctx), ctx)))
     #=
-    Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
-         Get.concept_id .== Get.concept.concept_id)
+    q = Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
+             Get.concept_id .== Get.concept.concept_id)
     =#
+    if b.first
+        q = q |>
+            Partition(Get.person_id, order_by = [Get.sort_date, Get.event_id]) |>
+            Where(Agg.row_number() .== 1)
+    end
+    q
 end
 
 function translate(c::CriteriaGroup, ctx::TranslateContext)
