@@ -257,8 +257,8 @@ function translate(c::CollapseSettings, ctx::TranslateContext)
     @assert c.collapse_type == ERA
     gap = c.era_pad
     Define(:end_date => dateadd_day(Get.end_date, gap)) |>
-    Partition(Get.person_id, order_by = [Get.start_date]) |>
-    Define(:boundary => Agg.lag(Get.end_date)) |>
+    Partition(Get.person_id, order_by = [Get.start_date], frame = (mode = :rows, start = -Inf, finish = -1)) |>
+    Define(:boundary => Agg.max(Get.end_date)) |>
     Define(:bump => Fun.case(Get.start_date .<= Get.boundary, 0, 1)) |>
     Partition(Get.person_id, order_by = [Get.start_date, .- Get.bump], frame = :rows) |>
     Define(:group => Agg.sum(Get.bump)) |>
