@@ -165,7 +165,7 @@ end
 
 function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.age === nothing
-    @assert b.correlated_criteria === nothing
+    #@assert b.correlated_criteria === nothing
     @assert isempty(b.gender)
     @assert b.occurrence_end_date === nothing
     @assert b.occurrence_start_date === nothing
@@ -181,6 +181,18 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
         q = q |>
             Partition(Get.person_id, order_by = [Get.sort_date, Get.event_id]) |>
             Where(Agg.row_number() .== 1)
+    end
+    if b.correlated_criteria !== nothing
+        q = q |>
+            Join(:op_ => ctx.model.observation_period,
+                 Get.person_id .== Get.op_.person_id)
+        q = q |>
+            Define(:op_start_date => Get.op_.observation_period_start_date,
+                   :op_end_date => Get.op_.observation_period_end_date)
+        q = q |>
+            Where(Fun.and(Get.op_start_date .<= Get.start_date, Get.start_date .<= Get.op_end_date))
+        q = q |>
+            translate(b.correlated_criteria, ctx)
     end
     q
 end
