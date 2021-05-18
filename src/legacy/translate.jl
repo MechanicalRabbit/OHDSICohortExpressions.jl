@@ -1,8 +1,8 @@
 using JSON
 using PrettyPrinting
 using FunSQL:
-    FunSQL, Define, From, FUN, OP, Fun, FunctionNode, Get, Join, LeftJoin,
-    Select, Where, Partition, Agg, Group, As, Var, Bind
+    FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
+    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind
 
 import ..Model, ..Source
 
@@ -306,21 +306,20 @@ function find_concept_set(codeset_id, ctx)
 end
 
 function translate(c::ConceptSet, ctx::TranslateContext)
-    include = Int[]
-    exclude = Int[]
+    include = ConceptSetItem[]
+    exclude = ConceptSetItem[]
     for item in c.items
-        @assert item.include_descendants
         @assert !item.include_mapped
         if !item.is_excluded
-            push!(include, item.concept.concept_id)
+            push!(include, item)
         else
-            push!(exclude, item.concept.concept_id)
+            push!(exclude, item)
         end
     end
-    q = translate_concept(include, ctx)
+    q = translate(include, ctx)
     if !isempty(exclude)
         q = q |>
-            LeftJoin(:excluded => translate_concept(exclude, ctx),
+            LeftJoin(:excluded => translate(exclude, ctx),
                      Get.concept_id .== Get.excluded.concept_id) |>
             Where(Fun."is null"(Get.excluded.concept_id))
     end
@@ -329,13 +328,31 @@ function translate(c::ConceptSet, ctx::TranslateContext)
     q
 end
 
-function translate_concept(ids::Vector{Int}, ctx::TranslateContext)
+function translate(items::Vector{ConceptSetItem}, ctx::TranslateContext)
     # TODO: Fun.in
-    q = From(ctx.model.concept) |>
-        Where(Fun."is null"(Get.invalid_reason)) |>
-        Join(ctx.model.concept_ancestor,
-             Get.concept_id .== Get.descendant_concept_id) |>
-        Where(Fun.or(args = [Get.ancestor_concept_id .== id for id in ids]))
-    q
+    with_descendants = [item for item in items if item.include_descendants]
+    wo_descendants = [item for item in items if !item.include_descendants]
+    with_q = wo_q = nothing
+    if !isempty(with_descendants)
+        args = [Get.ancestor_concept_id .== item.concept.concept_id for item in with_descendants]
+        with_q = From(ctx.model.concept) |>
+                 Where(Fun."is null"(Get.invalid_reason)) |>
+                 Join(ctx.model.concept_ancestor,
+                      Get.concept_id .== Get.descendant_concept_id) |>
+                 Where(Fun.or(args = args))
+    end
+    if !isempty(wo_descendants)
+        args = [Get.concept_id .== item.concept.concept_id for item in wo_descendants]
+        wo_q = From(ctx.model.concept) |>
+                Where(Fun."is null"(Get.invalid_reason)) |>
+                Where(Fun.or(args = args))
+    end
+    if with_q === nothing
+        return wo_q
+    elseif wo_q === nothing
+        return with_q
+    else
+        return with_q |> Append(wo_q)
+    end
 end
 
