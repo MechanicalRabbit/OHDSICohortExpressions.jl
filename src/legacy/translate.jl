@@ -222,7 +222,6 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
 end
 
 function translate(b::BaseCriteria, ctx::TranslateContext)
-    @assert isempty(b.gender)
     @assert b.occurrence_end_date === nothing
     @assert b.occurrence_start_date === nothing
     @assert isempty(b.provider_specialty)
@@ -233,12 +232,21 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     q = Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
              Get.concept_id .== Get.concept.concept_id)
     =#
-    if b.age !== nothing
+    if b.age !== nothing || !isempty(b.gender)
         q = q |>
             Join(:person => ctx.model.person,
-                 Get.person_id .== Get.person.person_id) |>
+                 Get.person_id .== Get.person.person_id)
+    end
+    if b.age !== nothing
+        q = q |>
             Define(:age => Fun.extract_year(Get.start_date) .- Get.person.year_of_birth) |>
             Where(translate(b.age, ctx, field = Get.age))
+    end
+    if !isempty(b.gender)
+        args = [Get.person.gender_concept_id .== c.concept_id
+                for c in b.gender]
+        q = q |>
+            Where(Fun.or(args = args))
     end
     if b.first
         q = q |>
