@@ -104,20 +104,42 @@ function unpack!(::Type{Vector{T}}, items::Vector{Any}) where {T}
     return retval
 end
 
+@enum RangeOp GT GTE LT LTE EQ NEQ BT NBT
+Base.parse(::Type{RangeOp}, s::String) =
+    s == "gt" ? GT :
+    s == "gte" ? GTE :
+    s == "lt" ? LT :
+    s == "lte" ? LTE :
+    s == "eq" ? EQ :
+    s == "!eq" ? NEQ :
+    s == "bt" ? BT :
+    s == "!bt" ? NBT :
+    throw(DomainError(s, "Unknown Range Operation"))
+
+@enum TextOp CONTAINS NCONTAINS STARTSWITH NSTARTSWITH ENDSWITH NENDSWITH
+Base.parse(::Type{TextOp}, s::String) =
+    s == "contains" ? CONTAINS :
+    s == "!contains" ? NCONTAINS :
+    s == "startsWith" ? STARTSWITH :
+    s == "!startsWith" ? NSTARTSWITH :
+    s == "endsWith" ? ENDSWITH :
+    s == "!endsWith" ? NENDSWITH :
+    throw(DomainError(s, "Unknown Text Operation"))
+
 @unpack struct DateRange
     "Value" => value::Date
-    "Op" => op::String
+    "Op" => op::RangeOp
     "Extent" => extent::Union{Date, Nothing} = nothing
 end
 
 @unpack struct TextFilter
     "Text" => text::String = "null"
-    "Op" => op::String
+    "Op" => op::TextOp
 end
 
 @unpack struct NumericRange
     "Value" => value::Number
-    "Op" => op::String
+    "Op" => op::RangeOp
     "Extent" => extent::Union{Number, Nothing} = nothing
 end
 

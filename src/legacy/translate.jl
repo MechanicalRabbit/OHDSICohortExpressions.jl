@@ -2,9 +2,21 @@ using JSON
 using PrettyPrinting
 using FunSQL:
     FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
-    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode
+    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW
 
 import ..Model, ..Source
+
+function FunSQL.translate(::Val{:extract_year}, n::FunctionNode, treq)
+    args = FunSQL.translate(n.args, treq)
+    if length(args) == 1
+        if treq.ctx.dialect.name === :sqlserver
+            return FUN(:YEAR, args[1])
+        else
+            return OP(:EXTRACT, OP(:year), args[1] |> KW(:FROM))
+        end
+    end
+    FunSQL.translate_default(n, treq)
+end
 
 function FunSQL.translate(::Val{:dateadd_day}, n::FunctionNode, treq)
     args = FunSQL.translate(n.args, treq)
@@ -193,8 +205,6 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
 end
 
 function translate(b::BaseCriteria, ctx::TranslateContext)
-    @assert b.age === nothing
-    #@assert b.correlated_criteria === nothing
     @assert isempty(b.gender)
     @assert b.occurrence_end_date === nothing
     @assert b.occurrence_start_date === nothing
@@ -206,6 +216,13 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     q = Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
              Get.concept_id .== Get.concept.concept_id)
     =#
+    if b.age !== nothing
+        q = q |>
+            Join(:person => ctx.model.person,
+                 Get.person_id .== Get.person.person_id) |>
+            Define(:age => Fun.extract_year(Get.start_date) .- Get.person.year_of_birth) |>
+            Where(translate(b.age, ctx, field = Get.age))
+    end
     if b.first
         q = q |>
             Partition(Get.person_id, order_by = [Get.sort_date, Get.event_id]) |>
@@ -452,6 +469,26 @@ function translate(items::Vector{ConceptSetItem}, ctx::TranslateContext)
         return with_q
     else
         return with_q |> Append(wo_q)
+    end
+end
+
+function translate(r::NumericRange, ctx::TranslateContext; field)
+    if r.op == GT
+        field .> r.value
+    elseif r.op == GTE
+        field .>= r.value
+    elseif r.op == LT
+        field .< r.value
+    elseif r.op == LTE
+        field .<= r.value
+    elseif r.op == EQ
+        field .== r.value
+    elseif r.op == NEQ
+        field .!= r.value
+    elseif r.op == BT
+        Fun.between(field, r.value, r.extent)
+    elseif r.op == NBT
+        Fun."not between"(field, r.value, r.extent)
     end
 end
 
