@@ -172,6 +172,71 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
     q
 end
 
+function translate(d::DrugExposure, ctx::TranslateContext)
+    @assert isempty(d.drug_type)
+    @assert !d.drug_type_exclude
+    @assert d.refills === nothing
+    @assert d.quantity === nothing
+    @assert d.days_supply === nothing
+    @assert isempty(d.route_concept)
+    @assert d.effective_drug_dose === nothing
+    @assert isempty(d.dose_unit)
+    @assert d.lot_number === nothing
+    @assert d.stop_reason === nothing
+    q = From(ctx.model.drug_exposure) |>
+        Define(:concept_id => Get.drug_concept_id,
+               :event_id => Get.drug_exposure_id,
+               :start_date => Get.drug_exposure_start_date,
+               :end_date => Fun.coalesce(Get.drug_exposure_end_date,
+                                         Fun.dateadd_day(Get.drug_exposure_start_date, Get.days_supply),
+                                         dateadd_day(Get.drug_exposure_start_date, 1)),
+               :sort_date => Get.drug_exposure_start_date)
+    if d.drug_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.drug_source_concept_id,
+                         translate(find_concept_set(d.drug_source_concept, ctx), ctx)))
+    end
+    q = q |>
+        translate(d.base, ctx)
+    q
+end
+
+function translate(m::Measurement, ctx::TranslateContext)
+    @assert isempty(m.measurement_type)
+    @assert !m.measurement_type_exclude
+    @assert m.abnormal === nothing
+    @assert m.range_low === nothing
+    @assert m.range_high === nothing
+    @assert m.range_low_ratio === nothing
+    @assert m.range_high_ratio === nothing
+    @assert isempty(m.value_as_concept)
+    @assert isempty(m.operator)
+    q = From(ctx.model.measurement) |>
+        Define(:concept_id => Get.measurement_concept_id,
+               :event_id => Get.measurement_id,
+               :start_date => Get.measurement_date,
+               :end_date => dateadd_day(Get.measurement_date, 1),
+               :sort_date => Get.measurement_date)
+    if m.measurement_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.measurement_source_concept_id,
+                         translate(find_concept_set(m.measurement_source_concept, ctx), ctx)))
+    end
+    if m.value_as_number !== nothing
+        q = q |>
+            Where(translate(m.value_as_number, ctx, field = Get.value_as_number))
+    end
+    if !isempty(m.unit)
+        args = [Get.unit_concept_id .== u.concept_id
+                for u in m.unit]
+        q = q |>
+            Where(Fun.or(args = args))
+    end
+    q = q |>
+        translate(m.base, ctx)
+    q
+end
+
 function translate(o::Observation, ctx::TranslateContext)
     @assert isempty(o.observation_type)
     @assert !o.observation_type_exclude
