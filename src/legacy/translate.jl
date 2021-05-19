@@ -150,6 +150,26 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
     q
 end
 
+function translate(o::Observation, ctx::TranslateContext)
+    @assert o.observation_source_concept === nothing
+    @assert isempty(o.observation_type)
+    @assert !o.observation_type_exclude
+    @assert o.value_as_string === nothing
+    @assert o.value_as_number === nothing
+    @assert isempty(o.value_as_concept)
+    @assert isempty(o.qualifier)
+    @assert isempty(o.unit)
+    q = From(ctx.model.observation) |>
+        Define(:concept_id => Get.observation_concept_id,
+               :event_id => Get.observation_id,
+               :start_date => Get.observation_date,
+               :end_date => dateadd_day(Get.observation_date, 1),
+               :sort_date => Get.observation_date)
+    q = q |>
+        translate(o.base, ctx)
+    q
+end
+
 function translate(v::VisitOccurrence, ctx::TranslateContext)
     @assert isempty(v.place_of_service)
     @assert v.place_of_service_location === nothing
