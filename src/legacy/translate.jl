@@ -257,8 +257,7 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
     @assert c.occurrence !== nothing &&
             !c.occurrence.is_distinct &&
             c.occurrence.count_column === nothing
-    @assert (c.occurrence.type == AT_LEAST && c.occurrence.count == 1) ||
-            (c.occurrence.type == EXACTLY && c.occurrence.count == 0)
+    @assert c.occurrence.type in (AT_LEAST, AT_MOST, EXACTLY)
     @assert c.criteria !== nothing
     q = translate(c.criteria, ctx)
     q = q |>
@@ -280,15 +279,31 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
         q = q |>
             translate(c.end_window, ctx, start = false, ignore_observation_period = c.ignore_observation_period)
     end
+    exists = c.occurrence.type == AT_LEAST && c.occurrence.count == 1
+    not_exists = c.occurrence.type == EXACTLY && c.occurrence.count == 0
+    if !exists && !not_exists
+        q = q |>
+            Group() |>
+            Select(Agg.count())
+    end
     q = q |>
         Bind(:person_id => Get.person_id,
              :start_date => Get.start_date,
              :end_date => Get.end_date,
              :op_start_date => Get.op_start_date,
              :op_end_date => Get.op_end_date)
-    q = Fun.exists(q)
-    if c.occurrence.type == EXACTLY && c.occurrence.count == 0
-        q = Fun.not(q)
+    if exists
+        q = Fun.exists(q)
+    elseif not_exists
+        q = Fun.not(Fun.exists(q))
+    else
+        if c.occurrence.type == AT_LEAST
+            q = q .>= c.occurrence.count
+        elseif c.occurrence.type == AT_MOST
+            q = q .<= c.occurrence.count
+        elseif c.occurrence.type == EXACTLY
+            q = q .== c.occurrence.count
+        end
     end
     q
 end
