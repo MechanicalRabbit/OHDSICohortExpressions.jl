@@ -2,7 +2,8 @@ using JSON
 using PrettyPrinting
 using FunSQL:
     FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
-    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW
+    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW,
+    Lit
 
 import ..Model, ..Source
 
@@ -293,18 +294,28 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
         return translate_redshift(c, ctx)
     end
     @assert c.count === nothing
-    @assert isempty(c.demographic_criteria)
     @assert c.type == ALL_CRITERIA || (c.type == ANY_CRITERIA && isempty(c.groups))
+    if !isempty(c.demographic_criteria)
+        q = Join(:person => ctx.model.person,
+                 Get.person_id .== Get.person.person_id) |>
+            Define(:age => Fun.extract_year(Get.start_date) .- Get.person.year_of_birth)
+    else
+        q = Define()
+    end
     args = SQLNode[]
     for criteria in c.correlated_criteria
         push!(args, translate(criteria, ctx))
     end
-    q = Define()
+    for criteria in c.demographic_criteria
+        push!(args, translate(criteria, ctx))
+    end
     if !isempty(args)
         if c.type == ALL_CRITERIA
-            q = Where(Fun.and(args = args))
+            q = q |>
+                Where(Fun.and(args = args))
         elseif c.type == ANY_CRITERIA
-            q = Where(Fun.or(args = args))
+            q = q |>
+                Where(Fun.or(args = args))
         end
     end
     for group in c.groups
@@ -312,6 +323,19 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
             translate(group, ctx)
     end
     q
+end
+
+function translate(d::DemographicCriteria, ctx::TranslateContext)
+    @assert isempty(d.ethnicity)
+    @assert isempty(d.race)
+    @assert isempty(d.gender)
+    @assert d.occurrence_start_date === nothing
+    @assert d.occurrence_end_date === nothing
+    if d.age !== nothing
+        translate(d.age, ctx, field = Get.age)
+    else
+        Lit(true)
+    end
 end
 
 function translate(c::CorrelatedCriteria, ctx::TranslateContext)
