@@ -253,13 +253,12 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
 end
 
 function translate(c::CorrelatedCriteria, ctx::TranslateContext)
-    @assert !c.ignore_observation_period
     @assert !c.restrict_visit
     @assert c.occurrence !== nothing &&
-            c.occurrence.type == AT_LEAST &&
-            c.occurrence.count == 1 &&
             !c.occurrence.is_distinct &&
             c.occurrence.count_column === nothing
+    @assert (c.occurrence.type == AT_LEAST && c.occurrence.count == 1) ||
+            (c.occurrence.type == EXACTLY && c.occurrence.count == 0)
     @assert c.criteria !== nothing
     q = translate(c.criteria, ctx)
     q = q |>
@@ -270,15 +269,16 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
                :end_date => Var.end_date,
                :op_start_date => Var.op_start_date,
                :op_end_date => Var.op_end_date)
+    if !c.ignore_observation_period
+        q = q |>
+            Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
+                          Get.correlated.start_date .<= Get.op_end_date))
+    end
     q = q |>
-        Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
-                      Get.correlated.start_date .<= Get.op_end_date))
-
-    q = q |>
-        translate(c.start_window, true, ctx)
+        translate(c.start_window, ctx, start = true, ignore_observation_period = c.ignore_observation_period)
     if c.end_window !== nothing
         q = q |>
-        translate(c.end_window, false, ctx)
+            translate(c.end_window, ctx, start = false, ignore_observation_period = c.ignore_observation_period)
     end
     q = q |>
         Bind(:person_id => Get.person_id,
@@ -286,7 +286,11 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
              :end_date => Get.end_date,
              :op_start_date => Get.op_start_date,
              :op_end_date => Get.op_end_date)
-    Fun.exists(q)
+    q = Fun.exists(q)
+    if c.occurrence.type == EXACTLY && c.occurrence.count == 0
+        q = Fun.not(q)
+    end
+    q
 end
 
 function translate_redshift(c::CriteriaGroup, ctx::TranslateContext)
@@ -306,7 +310,6 @@ function translate_redshift(c::CriteriaGroup, ctx::TranslateContext)
 end
 
 function translate_redshift(c::CorrelatedCriteria, ctx::TranslateContext)
-    @assert !c.ignore_observation_period
     @assert !c.restrict_visit
     @assert c.occurrence !== nothing &&
             c.occurrence.type == AT_LEAST &&
@@ -317,19 +320,21 @@ function translate_redshift(c::CorrelatedCriteria, ctx::TranslateContext)
     q = translate(c.criteria, ctx)
     q = Join(q |> As(:correlated),
              Get.person_id .== Get.correlated.person_id)
+    if !c.ignore_observation_period
+        q = q |>
+            Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
+                          Get.correlated.start_date .<= Get.op_end_date))
+    end
     q = q |>
-        Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
-                      Get.correlated.start_date .<= Get.op_end_date))
-    q = q |>
-        translate(c.start_window, true, ctx)
+        translate(c.start_window, ctx, start = true, ignore_observation_period = c.ignore_observation_period)
     if c.end_window !== nothing
         q = q |>
-        translate(c.end_window, false, ctx)
+        translate(c.end_window, ctx, start = false, ignore_observation_period = c.ignore_observation_period)
     end
     q
 end
 
-function translate(w::Window, start::Bool, ctx::TranslateContext)
+function translate(w::Window, ctx::TranslateContext; start::Bool, ignore_observation_period::Bool)
     index_date_field =
         w.use_index_end == true ? Get.end_date : Get.start_date
     event_date_field =
@@ -344,17 +349,13 @@ function translate(w::Window, start::Bool, ctx::TranslateContext)
     r = nothing
     if w.start.days !== nothing
         l = dateadd_day(index_date_field, w.start.days * w.start.coeff)
-    elseif w.start.coeff == -1
-        l = Get.op_start_date
-    else
-        l = Get.op_end_date
+    elseif !ignore_observation_period
+        l = w.start.coeff == -1 ? Get.op_start_date : Get.op_end_date
     end
     if w.end_.days !== nothing
         r = dateadd_day(index_date_field, w.end_.days * w.end_.coeff)
-    elseif w.end_.coeff == -1
-        r = Get.op_start_date
-    else
-        r = Get.op_end_date
+    elseif !ignore_observation_period
+        r = w.end_.coeff == -1 ? Get.op_start_date : Get.op_end_date
     end
     args = []
     if l !== nothing
