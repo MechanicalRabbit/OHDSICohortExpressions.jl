@@ -187,6 +187,23 @@ function translate(o::Observation, ctx::TranslateContext)
     q
 end
 
+function translate(p::ProcedureOccurrence, ctx::TranslateContext)
+    @assert p.procedure_source_concept === nothing
+    @assert isempty(p.procedure_type)
+    @assert !p.procedure_type_exclude
+    @assert isempty(p.modifier)
+    @assert p.quantity === nothing
+    q = From(ctx.model.procedure_occurrence) |>
+        Define(:concept_id => Get.procedure_concept_id,
+               :event_id => Get.procedure_occurrence_id,
+               :start_date => Get.procedure_date,
+               :end_date => dateadd_day(Get.procedure_date, 1),
+               :sort_date => Get.procedure_date)
+    q = q |>
+        translate(p.base, ctx)
+    q
+end
+
 function translate(v::VisitOccurrence, ctx::TranslateContext)
     @assert isempty(v.place_of_service)
     @assert v.place_of_service_location === nothing
