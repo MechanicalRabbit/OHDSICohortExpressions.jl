@@ -152,7 +152,6 @@ end
 
 function translate(c::ConditionOccurrence, ctx::TranslateContext)
     @assert isempty(c.condition_status)
-    @assert isempty(c.condition_type)
     @assert !c.condition_type_exclude
     @assert c.stop_reason === nothing
     q = From(ctx.model.condition_occurrence) |>
@@ -166,6 +165,12 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
         q = q |>
             Where(Fun.in(Get.condition_source_concept_id,
                          translate(find_concept_set(c.condition_source_concept, ctx), ctx)))
+    end
+    if !isempty(c.condition_type)
+        args = [Get.condition_type_concept_id .== t.concept_id
+                for t in c.condition_type]
+        q = q |>
+            Where(Fun.or(args = args))
     end
     q = q |>
         translate(c.base, ctx)
