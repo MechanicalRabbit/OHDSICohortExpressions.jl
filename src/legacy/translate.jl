@@ -150,7 +150,6 @@ function translate(c::PrimaryCriteria, ctx::TranslateContext)
 end
 
 function translate(c::ConditionOccurrence, ctx::TranslateContext)
-    @assert c.condition_source_concept === nothing
     @assert isempty(c.condition_status)
     @assert isempty(c.condition_type)
     @assert !c.condition_type_exclude
@@ -162,13 +161,17 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
                :end_date => Fun.coalesce(Get.condition_end_date,
                                          dateadd_day(Get.condition_start_date, 1)),
                :sort_date => Get.condition_start_date)
+    if c.condition_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.condition_source_concept_id,
+                         translate(find_concept_set(c.condition_source_concept, ctx), ctx)))
+    end
     q = q |>
         translate(c.base, ctx)
     q
 end
 
 function translate(o::Observation, ctx::TranslateContext)
-    @assert o.observation_source_concept === nothing
     @assert isempty(o.observation_type)
     @assert !o.observation_type_exclude
     @assert o.value_as_string === nothing
@@ -182,13 +185,17 @@ function translate(o::Observation, ctx::TranslateContext)
                :start_date => Get.observation_date,
                :end_date => dateadd_day(Get.observation_date, 1),
                :sort_date => Get.observation_date)
+    if o.observation_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.observation_source_concept_id,
+                         translate(find_concept_set(o.observation_source_concept, ctx), ctx)))
+    end
     q = q |>
         translate(o.base, ctx)
     q
 end
 
 function translate(p::ProcedureOccurrence, ctx::TranslateContext)
-    @assert p.procedure_source_concept === nothing
     @assert isempty(p.procedure_type)
     @assert !p.procedure_type_exclude
     @assert isempty(p.modifier)
@@ -199,6 +206,11 @@ function translate(p::ProcedureOccurrence, ctx::TranslateContext)
                :start_date => Get.procedure_date,
                :end_date => dateadd_day(Get.procedure_date, 1),
                :sort_date => Get.procedure_date)
+    if p.procedure_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.procedure_source_concept_id,
+                         translate(find_concept_set(p.procedure_source_concept, ctx), ctx)))
+    end
     q = q |>
         translate(p.base, ctx)
     q
@@ -207,7 +219,6 @@ end
 function translate(v::VisitOccurrence, ctx::TranslateContext)
     @assert isempty(v.place_of_service)
     @assert v.place_of_service_location === nothing
-    @assert v.visit_source_concept === nothing
     @assert v.visit_length === nothing
     @assert !v.visit_type_exclude
     q = From(ctx.model.visit_occurrence) |>
@@ -216,6 +227,11 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
                :start_date => Get.visit_start_date,
                :end_date => Get.visit_end_date,
                :sort_date => Get.visit_start_date)
+    if v.visit_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.visit_source_concept_id,
+                         translate(find_concept_set(v.visit_source_concept, ctx), ctx)))
+    end
     q = q |>
         translate(v.base, ctx)
     q
@@ -226,8 +242,12 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.occurrence_start_date === nothing
     @assert isempty(b.provider_specialty)
     @assert isempty(b.visit_type)
-    q = Where(Fun.in(Get.concept_id,
-                     translate(find_concept_set(b.codeset_id, ctx), ctx)))
+    if b.codeset_id !== nothing
+        q = Where(Fun.in(Get.concept_id,
+                         translate(find_concept_set(b.codeset_id, ctx), ctx)))
+    else
+        q = Define()
+    end
     #=
     q = Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
              Get.concept_id .== Get.concept.concept_id)
