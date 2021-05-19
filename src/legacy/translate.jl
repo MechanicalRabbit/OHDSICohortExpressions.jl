@@ -2,7 +2,7 @@ using JSON
 using PrettyPrinting
 using FunSQL:
     FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
-    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind
+    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode
 
 import ..Model, ..Source
 
@@ -52,10 +52,14 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
     @assert c.expression_limit.type == ALL || c.expression_limit.type == FIRST
-    @assert c.qualified_limit.type == ALL || c.additional_criteria === nothing
+    @assert c.qualified_limit.type == ALL || c.qualified_limit.type == FIRST || c.additional_criteria === nothing
     q = translate(c.primary_criteria, ctx)
     q = q |>
         translate(c.additional_criteria, ctx)
+    if c.additional_criteria !== nothing
+        q = q |>
+            translate(c.qualified_limit, ctx)
+    end
     for r in c.inclusion_rules
         q = q |>
             translate(r.expression, ctx)
@@ -198,12 +202,29 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
 end
 
 function translate(c::CriteriaGroup, ctx::TranslateContext)
+    if ctx.dialect === :redshift
+        return translate_redshift(c, ctx)
+    end
     @assert c.count === nothing
-    @assert length(c.correlated_criteria) == 1
     @assert isempty(c.demographic_criteria)
-    @assert isempty(c.groups)
-    @assert c.type == "ALL"
-    translate(c.correlated_criteria[1], ctx)
+    @assert c.type == ALL_CRITERIA || (c.type == ANY_CRITERIA && isempty(c.groups))
+    args = SQLNode[]
+    for criteria in c.correlated_criteria
+        push!(args, translate(criteria, ctx))
+    end
+    q = Define()
+    if !isempty(args)
+        if c.type == ALL_CRITERIA
+            q = Where(Fun.and(args = args))
+        elseif c.type == ANY_CRITERIA
+            q = Where(Fun.or(args = args))
+        end
+    end
+    for group in c.groups
+        q = q |>
+            translate(group, ctx)
+    end
+    q
 end
 
 function translate(c::CorrelatedCriteria, ctx::TranslateContext)
@@ -216,44 +237,69 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
             c.occurrence.count_column === nothing
     @assert c.criteria !== nothing
     q = translate(c.criteria, ctx)
-    if ctx.dialect === :redshift
-        q = Join(q |> As(:correlated),
-                 Get.person_id .== Get.correlated.person_id)
-        q = q |>
-            Where(Fun.and(Get.op.start_date .<= Get.correlated.start_date,
-                          Get.correlated.start_date .<= Get.op.end_date))
-        q = q |>
-            translate(c.start_window, true, ctx)
-        if c.end_window !== nothing
-            q = q |>
-            translate(c.end_window, false, ctx)
-        end
-    else
-        q = q |>
-            As(:correlated) |>
-            Where(Get.correlated.person_id .== Var.person_id)
-        q = q |>
-            Define(:start_date => Var.start_date,
-                   :end_date => Var.end_date,
-                   :op_start_date => Var.op_start_date,
-                   :op_end_date => Var.op_end_date)
-        q = q |>
-            Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
-                          Get.correlated.start_date .<= Get.op_end_date))
+    q = q |>
+        As(:correlated) |>
+        Where(Get.correlated.person_id .== Var.person_id)
+    q = q |>
+        Define(:start_date => Var.start_date,
+               :end_date => Var.end_date,
+               :op_start_date => Var.op_start_date,
+               :op_end_date => Var.op_end_date)
+    q = q |>
+        Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
+                      Get.correlated.start_date .<= Get.op_end_date))
 
+    q = q |>
+        translate(c.start_window, true, ctx)
+    if c.end_window !== nothing
         q = q |>
-            translate(c.start_window, true, ctx)
-        if c.end_window !== nothing
-            q = q |>
-            translate(c.end_window, false, ctx)
-        end
+        translate(c.end_window, false, ctx)
+    end
+    q = q |>
+        Bind(:person_id => Get.person_id,
+             :start_date => Get.start_date,
+             :end_date => Get.end_date,
+             :op_start_date => Get.op_start_date,
+             :op_end_date => Get.op_end_date)
+    Fun.exists(q)
+end
+
+function translate_redshift(c::CriteriaGroup, ctx::TranslateContext)
+    @assert c.count === nothing
+    @assert isempty(c.demographic_criteria)
+    @assert c.type == ALL_CRITERIA || (c.type == ANY_CRITERIA && isempty(c.groups))
+    q = Define()
+    for criteria in c.correlated_criteria
         q = q |>
-            Bind(:person_id => Get.person_id,
-                 :start_date => Get.start_date,
-                 :end_date => Get.end_date,
-                 :op_start_date => Get.op_start_date,
-                 :op_end_date => Get.op_end_date)
-        q = Where(Fun.exists(q))
+            translate_redshift(criteria, ctx)
+    end
+    for group in c.groups
+        q = q |>
+            translate(group, ctx)
+    end
+    q
+end
+
+function translate_redshift(c::CorrelatedCriteria, ctx::TranslateContext)
+    @assert !c.ignore_observation_period
+    @assert !c.restrict_visit
+    @assert c.occurrence !== nothing &&
+            c.occurrence.type == AT_LEAST &&
+            c.occurrence.count == 1 &&
+            !c.occurrence.is_distinct &&
+            c.occurrence.count_column === nothing
+    @assert c.criteria !== nothing
+    q = translate(c.criteria, ctx)
+    q = Join(q |> As(:correlated),
+             Get.person_id .== Get.correlated.person_id)
+    q = q |>
+        Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
+                      Get.correlated.start_date .<= Get.op_end_date))
+    q = q |>
+        translate(c.start_window, true, ctx)
+    if c.end_window !== nothing
+        q = q |>
+        translate(c.end_window, false, ctx)
     end
     q
 end

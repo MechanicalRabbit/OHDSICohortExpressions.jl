@@ -177,8 +177,8 @@ end
 @enum OccurrenceType EXACTLY=0 AT_MOST=1 AT_LEAST=2
 Base.parse(::Type{OccurrenceType}, s::String) =
     s == "0" ? EXACTLY :
-         "1" ? AT_MOST :
-         "2" ? AT_LEAST :
+    s == "1" ? AT_MOST :
+    s == "2" ? AT_LEAST :
          throw(DomainError(s, "Unknown Occurrence Type"))
 
 @unpack struct Occurrence
@@ -206,12 +206,20 @@ end
     "Race" => race::Vector{Concept} = Concept[]
 end
 
+@enum CriteriaGroupType ALL_CRITERIA ANY_CRITERIA AT_LEAST_CRITERIA AT_MOST_CRITERIA
+Base.parse(::Type{CriteriaGroupType}, s::String) =
+    s == "ALL" ? ALL_CRITERIA :
+    s == "ANY" ? ANY_CRITERIA :
+    s == "AT_LEAST" ? AT_LEAST_CRITERIA :
+    s == "AT_MOST" ? AT_MOST_CRITERIA :
+    throw(DomainError(s, "Unknown Criteria Group Type"))
+
 @unpack struct CriteriaGroup
     "Count" => count::Union{Int, Nothing} = nothing
     "CriteriaList" => correlated_criteria::Vector{CorrelatedCriteria} = CorrelatedCriteria[]
     "DemographicCriteriaList" => demographic_criteria::Vector{DemographicCriteria} = DemographicCriteria[]
     "Groups" => groups::Vector{CriteriaGroup} = CriteriaGroup[]
-    "Type" => type::Union{String, Nothing} = nothing
+    "Type" => type::CriteriaGroupType
 end
 
 isempty(g::CriteriaGroup) =
