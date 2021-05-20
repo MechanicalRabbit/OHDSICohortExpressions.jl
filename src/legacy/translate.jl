@@ -245,7 +245,7 @@ function translate(d::DrugEra, ctx::TranslateContext)
     if d.era_length !== nothing
         field = Fun.datediff_day(Get.drug_era_end_date, Get.drug_era_start_date)
         q = q |>
-            Where(translate(d.era_length, ctx, field = field))
+            Where(predicate(d.era_length, ctx, field = field))
     end
     q = q |>
         translate(d.base, ctx)
@@ -309,7 +309,7 @@ function translate(m::Measurement, ctx::TranslateContext)
     end
     if m.value_as_number !== nothing
         q = q |>
-            Where(translate(m.value_as_number, ctx, field = Get.value_as_number))
+            Where(predicate(m.value_as_number, ctx, field = Get.value_as_number))
     end
     if !isempty(m.unit)
         args = [Get.unit_concept_id .== u.concept_id
@@ -346,7 +346,7 @@ function translate(o::Observation, ctx::TranslateContext)
     end
     if o.value_as_number !== nothing
         q = q |>
-            Where(translate(o.value_as_number, ctx, field = Get.value_as_number))
+            Where(predicate(o.value_as_number, ctx, field = Get.value_as_number))
     end
     if !isempty(o.unit)
         args = [Get.unit_concept_id .== u.concept_id
@@ -375,7 +375,7 @@ function translate(o::ObservationPeriod, ctx::TranslateContext)
     if o.period_length !== nothing
         field = Fun.datediff_day(Get.end_date, Get.start_date)
         q = q |>
-            Where(translate(o.period_length, ctx, field = field))
+            Where(predicate(o.period_length, ctx, field = field))
     end
     q = q |>
         translate(o.base, ctx)
@@ -443,7 +443,7 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     end
     if b.occurrence_start_date !== nothing
         q = q |>
-        Where(translate(b.occurrence_start_date, ctx, field = Get.start_date))
+        Where(predicate(b.occurrence_start_date, ctx, field = Get.start_date))
     end
     if b.age !== nothing || !isempty(b.gender)
         q = q |>
@@ -453,7 +453,7 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     if b.age !== nothing
         q = q |>
             Define(:age => Fun.extract_year(Get.start_date) .- Get.person.year_of_birth) |>
-            Where(translate(b.age, ctx, field = Get.age))
+            Where(predicate(b.age, ctx, field = Get.age))
     end
     if !isempty(b.gender)
         args = [Get.person.gender_concept_id .== c.concept_id
@@ -497,8 +497,10 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
     if ctx.dialect === :redshift
         return translate_redshift(c, ctx)
     end
-    @assert c.count === nothing
-    @assert c.type == ALL_CRITERIA || (c.type == ANY_CRITERIA && isempty(c.groups))
+    is_all = c.type == ALL_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
+    is_any = c.type == ANY_CRITERIA
+    is_none = c.type == AT_MOST_CRITERIA && c.count == 0
+    @assert is_all || is_any || is_none
     if !isempty(c.demographic_criteria)
         q = Join(:person => ctx.model.person,
                  Get.person_id .== Get.person.person_id) |>
@@ -508,45 +510,73 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
     end
     args = SQLNode[]
     for criteria in c.correlated_criteria
-        push!(args, translate(criteria, ctx))
+        push!(args, predicate(criteria, ctx))
     end
     for criteria in c.demographic_criteria
-        push!(args, translate(criteria, ctx))
+        push!(args, predicate(criteria, ctx))
     end
-    if !isempty(args)
-        if c.type == ALL_CRITERIA
-            q = q |>
-                Where(Fun.and(args = args))
-        elseif c.type == ANY_CRITERIA
-            q = q |>
-                Where(Fun.or(args = args))
+    if !is_all
+        for group in c.groups
+            push!(args, predicate(group, ctx))
         end
     end
-    for group in c.groups
-        q = q |>
-            translate(group, ctx)
+    if !isempty(args)
+        if is_all
+            q = q |>
+                Where(Fun.and(args = args))
+        elseif is_any
+            q = q |>
+                Where(Fun.or(args = args))
+        elseif is_none
+            args = [Fun.not(arg) for arg in args]
+            q = q |>
+                Where(Fun.and(args = args))
+        end
+    end
+    if is_all
+        for group in c.groups
+            q = q |>
+                translate(group, ctx)
+        end
     end
     q
 end
 
-function translate(d::DemographicCriteria, ctx::TranslateContext)
+function predicate(c::CriteriaGroup, ctx::TranslateContext)
+    @assert c.count === nothing
+    @assert c.type == ALL_CRITERIA || c.type == ANY_CRITERIA
+    @assert isempty(c.demographic_criteria)
+    args = SQLNode[]
+    for criteria in c.correlated_criteria
+        push!(args, predicate(criteria, ctx))
+    end
+    for group in c.groups
+        push!(args, predicate(group, ctx))
+    end
+    if c.type == ALL_CRITERIA
+        Fun.and(args = args)
+    elseif c.type == ANY_CRITERIA
+        Fun.or(args = args)
+    end
+end
+
+function predicate(d::DemographicCriteria, ctx::TranslateContext)
     @assert isempty(d.ethnicity)
     @assert isempty(d.race)
     @assert isempty(d.gender)
     @assert d.occurrence_end_date === nothing
     args = SQLNode[]
     if d.age !== nothing
-        push!(args, translate(d.age, ctx, field = Get.age))
+        push!(args, predicate(d.age, ctx, field = Get.age))
     end
     if d.occurrence_start_date !== nothing
-        push!(args, translate(d.occurrence_start_date, ctx, field = Get.start_date))
+        push!(args, predicate(d.occurrence_start_date, ctx, field = Get.start_date))
     end
     Fun.and(args = args)
 end
 
-function translate(c::CorrelatedCriteria, ctx::TranslateContext)
+function predicate(c::CorrelatedCriteria, ctx::TranslateContext)
     @assert c.occurrence !== nothing &&
-            !c.occurrence.is_distinct &&
             c.occurrence.count_column === nothing
     @assert c.occurrence.type in (AT_LEAST, AT_MOST, EXACTLY)
     @assert c.criteria !== nothing
@@ -575,11 +605,17 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
             translate(c.end_window, ctx, start = false, ignore_observation_period = c.ignore_observation_period)
     end
     exists = c.occurrence.type == AT_LEAST && c.occurrence.count == 1
-    not_exists = c.occurrence.type == EXACTLY && c.occurrence.count == 0
+    not_exists = c.occurrence.type in (EXACTLY, AT_MOST) && c.occurrence.count == 0
     if !exists && !not_exists
         q = q |>
-            Group() |>
-            Select(Agg.count())
+            Group()
+        if c.occurrence.is_distinct
+            q = q |>
+                Select(Agg.count(distinct = true, Get.correlated.concept_id))
+        else
+            q = q |>
+                Select(Agg.count())
+        end
     end
     q = q |>
         Bind(:person_id => Get.person_id,
@@ -751,7 +787,7 @@ function translate(items::Vector{ConceptSetItem}, ctx::TranslateContext)
     end
 end
 
-function translate(r::Union{NumericRange, DateRange}, ctx::TranslateContext; field)
+function predicate(r::Union{NumericRange, DateRange}, ctx::TranslateContext; field)
     if r.op == GT
         field .> r.value
     elseif r.op == GTE
