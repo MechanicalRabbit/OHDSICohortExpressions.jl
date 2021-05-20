@@ -308,6 +308,25 @@ function translate(o::Observation, ctx::TranslateContext)
     q
 end
 
+function translate(o::ObservationPeriod, ctx::TranslateContext)
+    @assert isempty(o.period_type)
+    @assert !o.period_type_exclude
+    @assert o.period_start_date === nothing
+    @assert o.period_end_date === nothing
+    @assert o.period_length === nothing
+    @assert o.age_at_start === nothing
+    @assert o.age_at_end === nothing
+    @assert o.user_defined_period === nothing
+    q = From(ctx.model.observation_period) |>
+        Define(:event_id => Get.observation_period_id,
+               :start_date => Get.observation_period_start_date,
+               :end_date => Get.observation_period_end_date,
+               :sort_date => Get.observation_period_start_date)
+    q = q |>
+        translate(o.base, ctx)
+    q
+end
+
 function translate(p::ProcedureOccurrence, ctx::TranslateContext)
     @assert isempty(p.procedure_type)
     @assert !p.procedure_type_exclude
