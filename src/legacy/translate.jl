@@ -189,6 +189,28 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
     q
 end
 
+function translate(d::DeviceExposure, ctx::TranslateContext)
+    @assert isempty(d.device_type)
+    @assert !d.device_type_exclude
+    @assert d.quantity === nothing
+    @assert d.unique_device_id === nothing
+    q = From(ctx.model.device_exposure) |>
+        Define(:concept_id => Get.device_concept_id,
+               :event_id => Get.device_exposure_id,
+               :start_date => Get.device_exposure_start_date,
+               :end_date => Fun.coalesce(Get.device_exposure_end_date,
+                                         dateadd_day(Get.device_exposure_start_date, 1)),
+               :sort_date => Get.device_exposure_start_date)
+    if d.device_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.device_source_concept_id,
+                         translate(find_concept_set(d.device_source_concept, ctx), ctx)))
+    end
+    q = q |>
+        translate(d.base, ctx)
+    q
+end
+
 function translate(d::DrugEra, ctx::TranslateContext)
     @assert d.era_start_date === nothing
     @assert d.era_end_date === nothing
