@@ -280,10 +280,8 @@ function translate(o::Observation, ctx::TranslateContext)
     @assert isempty(o.observation_type)
     @assert !o.observation_type_exclude
     @assert o.value_as_string === nothing
-    @assert o.value_as_number === nothing
     @assert isempty(o.value_as_concept)
     @assert isempty(o.qualifier)
-    @assert isempty(o.unit)
     q = From(ctx.model.observation) |>
         Define(:concept_id => Get.observation_concept_id,
                :event_id => Get.observation_id,
@@ -294,6 +292,16 @@ function translate(o::Observation, ctx::TranslateContext)
         q = q |>
             Where(Fun.in(Get.observation_source_concept_id,
                          translate(find_concept_set(o.observation_source_concept, ctx), ctx)))
+    end
+    if o.value_as_number !== nothing
+        q = q |>
+            Where(translate(o.value_as_number, ctx, field = Get.value_as_number))
+    end
+    if !isempty(o.unit)
+        args = [Get.unit_concept_id .== u.concept_id
+                for u in o.unit]
+        q = q |>
+            Where(Fun.or(args = args))
     end
     q = q |>
         translate(o.base, ctx)
