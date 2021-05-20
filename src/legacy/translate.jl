@@ -364,7 +364,6 @@ function translate(o::ObservationPeriod, ctx::TranslateContext)
     @assert !o.period_type_exclude
     @assert o.period_start_date === nothing
     @assert o.period_end_date === nothing
-    @assert o.period_length === nothing
     @assert o.age_at_start === nothing
     @assert o.age_at_end === nothing
     @assert o.user_defined_period === nothing
@@ -373,6 +372,11 @@ function translate(o::ObservationPeriod, ctx::TranslateContext)
                :start_date => Get.observation_period_start_date,
                :end_date => Get.observation_period_end_date,
                :sort_date => Get.observation_period_start_date)
+    if o.period_length !== nothing
+        field = Fun.datediff_day(Get.end_date, Get.start_date)
+        q = q |>
+            Where(translate(o.period_length, ctx, field = field))
+    end
     q = q |>
         translate(o.base, ctx)
     q
