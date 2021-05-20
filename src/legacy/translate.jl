@@ -533,13 +533,15 @@ function translate(d::DemographicCriteria, ctx::TranslateContext)
     @assert isempty(d.ethnicity)
     @assert isempty(d.race)
     @assert isempty(d.gender)
-    @assert d.occurrence_start_date === nothing
     @assert d.occurrence_end_date === nothing
+    args = SQLNode[]
     if d.age !== nothing
-        translate(d.age, ctx, field = Get.age)
-    else
-        Lit(true)
+        push!(args, translate(d.age, ctx, field = Get.age))
     end
+    if d.occurrence_start_date !== nothing
+        push!(args, translate(d.occurrence_start_date, ctx, field = Get.start_date))
+    end
+    Fun.and(args = args)
 end
 
 function translate(c::CorrelatedCriteria, ctx::TranslateContext)
