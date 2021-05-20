@@ -13,7 +13,7 @@ function FunSQL.translate(::Val{:extract_year}, n::FunctionNode, treq)
         if treq.ctx.dialect.name === :sqlserver
             return FUN(:YEAR, args[1])
         else
-            return OP(:EXTRACT, OP(:year), args[1] |> KW(:FROM))
+            return FUN(:EXTRACT, OP(:year), args[1] |> KW(:FROM))
         end
     end
     FunSQL.translate_default(n, treq)
@@ -142,7 +142,7 @@ function translate(c::PrimaryCriteria, ctx::TranslateContext)
         Define(:op_start_date => Get.op.start_date,
                :op_end_date => Get.op.end_date)
     l = dateadd_day(Get.op.start_date, c.observation_window.prior_days)
-    r = dateadd_day(Get.op.end_date, c.observation_window.post_days)
+    r = dateadd_day(Get.op.end_date, - c.observation_window.post_days)
     q = q |>
         Where(Fun.and(l .<= Get.start_date, Get.start_date .<= r))
     q = q |>
@@ -323,6 +323,11 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     q = Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
              Get.concept_id .== Get.concept.concept_id)
     =#
+    if b.first
+        q = q |>
+            Partition(Get.person_id, order_by = [Get.sort_date, Get.event_id]) |>
+            Where(Agg.row_number() .== 1)
+    end
     if b.age !== nothing || !isempty(b.gender)
         q = q |>
             Join(:person => ctx.model.person,
@@ -338,11 +343,6 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
                 for c in b.gender]
         q = q |>
             Where(Fun.or(args = args))
-    end
-    if b.first
-        q = q |>
-            Partition(Get.person_id, order_by = [Get.sort_date, Get.event_id]) |>
-            Where(Agg.row_number() .== 1)
     end
     if b.correlated_criteria !== nothing
         q = q |>
