@@ -189,6 +189,25 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
     q
 end
 
+function translate(d::Death, ctx::TranslateContext)
+    @assert isempty(d.death_type)
+    @assert !d.death_type_exclude
+    q = From(ctx.model.death) |>
+        Define(:concept_id => Get.cause_concept_id,
+               :event_id => 0,
+               :start_date => Get.death_date,
+               :end_date => dateadd_day(Get.death_date, 1),
+               :sort_date => Get.death_date)
+    if d.death_source_concept !== nothing
+        q = q |>
+            Where(Fun.in(Get.cause_source_concept_id,
+                         translate(find_concept_set(d.death_source_concept, ctx), ctx)))
+    end
+    q = q |>
+        translate(d.base, ctx)
+    q
+end
+
 function translate(d::DeviceExposure, ctx::TranslateContext)
     @assert isempty(d.device_type)
     @assert !d.device_type_exclude
