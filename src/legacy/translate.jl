@@ -289,7 +289,6 @@ function translate(m::Measurement, ctx::TranslateContext)
     @assert m.range_high === nothing
     @assert m.range_low_ratio === nothing
     @assert m.range_high_ratio === nothing
-    @assert isempty(m.value_as_concept)
     @assert isempty(m.operator)
     q = From(ctx.model.measurement) |>
         Define(:concept_id => Get.measurement_concept_id,
@@ -301,6 +300,12 @@ function translate(m::Measurement, ctx::TranslateContext)
         q = q |>
             Where(Fun.in(Get.measurement_source_concept_id,
                          translate(find_concept_set(m.measurement_source_concept, ctx), ctx)))
+    end
+    if !isempty(m.value_as_concept)
+        args = [Get.value_as_concept_id .== v.concept_id
+                for v in m.value_as_concept]
+        q = q |>
+            Where(Fun.or(args = args))
     end
     if m.value_as_number !== nothing
         q = q |>
@@ -321,7 +326,6 @@ function translate(o::Observation, ctx::TranslateContext)
     @assert isempty(o.observation_type)
     @assert !o.observation_type_exclude
     @assert o.value_as_string === nothing
-    @assert isempty(o.value_as_concept)
     @assert isempty(o.qualifier)
     q = From(ctx.model.observation) |>
         Define(:concept_id => Get.observation_concept_id,
@@ -333,6 +337,12 @@ function translate(o::Observation, ctx::TranslateContext)
         q = q |>
             Where(Fun.in(Get.observation_source_concept_id,
                          translate(find_concept_set(o.observation_source_concept, ctx), ctx)))
+    end
+    if !isempty(o.value_as_concept)
+        args = [Get.value_as_concept_id .== v.concept_id
+                for v in o.value_as_concept]
+        q = q |>
+            Where(Fun.or(args = args))
     end
     if o.value_as_number !== nothing
         q = q |>
@@ -412,7 +422,6 @@ end
 
 function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.occurrence_end_date === nothing
-    @assert b.occurrence_start_date === nothing
     if b.codeset_id !== nothing
         q = Where(Fun.in(Get.concept_id,
                          translate(find_concept_set(b.codeset_id, ctx), ctx)))
@@ -427,6 +436,10 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
         q = q |>
             Partition(Get.person_id, order_by = [Get.sort_date, Get.event_id]) |>
             Where(Agg.row_number() .== 1)
+    end
+    if b.occurrence_start_date !== nothing
+        q = q |>
+        Where(translate(b.occurrence_start_date, ctx, field = Get.start_date))
     end
     if b.age !== nothing || !isempty(b.gender)
         q = q |>
@@ -728,7 +741,7 @@ function translate(items::Vector{ConceptSetItem}, ctx::TranslateContext)
     end
 end
 
-function translate(r::NumericRange, ctx::TranslateContext; field)
+function translate(r::Union{NumericRange, DateRange}, ctx::TranslateContext; field)
     if r.op == GT
         field .> r.value
     elseif r.op == GTE
