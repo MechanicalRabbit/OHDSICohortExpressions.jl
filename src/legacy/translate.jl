@@ -31,6 +31,18 @@ function FunSQL.translate(::Val{:dateadd_day}, n::FunctionNode, treq)
     FunSQL.translate_default(n, treq)
 end
 
+function FunSQL.translate(::Val{:datediff_day}, n::FunctionNode, treq)
+    args = FunSQL.translate(n.args, treq)
+    if length(args) == 2
+        if treq.ctx.dialect.name === :sqlserver
+            return FUN(:DATEDIFF, args = [OP(:day), args[2], args[1]])
+        else
+            return OP(:-, args = [args[1], args[2]])
+        end
+    end
+    FunSQL.translate_default(n, treq)
+end
+
 function FunSQL.render(ctx, val::Bool)
     if ctx.dialect.name === :sqlserver
         print(ctx, val ? 1 : 0)
@@ -174,6 +186,28 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
     end
     q = q |>
         translate(c.base, ctx)
+    q
+end
+
+function translate(d::DrugEra, ctx::TranslateContext)
+    @assert d.era_start_date === nothing
+    @assert d.era_end_date === nothing
+    @assert d.occurrence_count === nothing
+    @assert d.age_at_start === nothing
+    @assert d.age_at_end === nothing
+    q = From(ctx.model.drug_era) |>
+        Define(:concept_id => Get.drug_concept_id,
+               :event_id => Get.drug_era_id,
+               :start_date => Get.drug_era_start_date,
+               :end_date => Get.drug_era_end_date,
+               :sort_date => Get.drug_era_start_date)
+    if d.era_length !== nothing
+        field = Fun.datediff_day(Get.drug_era_end_date, Get.drug_era_start_date)
+        q = q |>
+            Where(translate(d.era_length, ctx, field = field))
+    end
+    q = q |>
+        translate(d.base, ctx)
     q
 end
 
