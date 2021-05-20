@@ -345,7 +345,6 @@ end
 function translate(b::BaseCriteria, ctx::TranslateContext)
     @assert b.occurrence_end_date === nothing
     @assert b.occurrence_start_date === nothing
-    @assert isempty(b.visit_type)
     if b.codeset_id !== nothing
         q = Where(Fun.in(Get.concept_id,
                          translate(find_concept_set(b.codeset_id, ctx), ctx)))
@@ -383,6 +382,15 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
         q = q |>
             Join(:provider => ctx.model.provider,
                  Get.provider_id .== Get.provider.provider_id) |>
+            Where(Fun.or(args = args))
+    end
+    if !isempty(b.visit_type)
+        args = [Get.visit.visit_concept_id .== c.concept_id
+                for c in b.visit_type]
+        q = q |>
+            Join(:visit => ctx.model.visit_occurrence,
+                 Fun.and(Get.person_id .== Get.visit.person_id,
+                         Get.visit_occurrence_id .== Get.visit.visit_occurrence_id)) |>
             Where(Fun.or(args = args))
     end
     if b.correlated_criteria !== nothing
