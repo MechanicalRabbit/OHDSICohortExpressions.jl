@@ -587,7 +587,7 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
              :end_date => Get.end_date,
              :op_start_date => Get.op_start_date,
              :op_end_date => Get.op_end_date,
-             :visit_occurrence_id => Get.visit_occurrence_id)
+             :visit_occurrence_id => c.restrict_visit ? Get.visit_occurrence_id : 0)
     if exists
         q = Fun.exists(q)
     elseif not_exists
