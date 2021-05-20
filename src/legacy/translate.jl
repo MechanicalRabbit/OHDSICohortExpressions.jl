@@ -77,16 +77,16 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
-    q = translate(c.primary_criteria, ctx)
+    q = base = translate(c.primary_criteria, ctx)
     q = q |>
-        translate(c.additional_criteria, ctx)
+        translate(c.additional_criteria, ctx, base = base)
     if c.additional_criteria !== nothing
         q = q |>
             translate(c.qualified_limit, ctx)
     end
     for r in c.inclusion_rules
         q = q |>
-            translate(r.expression, ctx)
+            translate(r.expression, ctx, base = base)
     end
     q = q |>
         translate(c.expression_limit, ctx)
@@ -106,7 +106,7 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     q
 end
 
-translate(::Nothing, ctx::TranslateContext) =
+translate(::Nothing, ctx::TranslateContext; base = nothing) =
     Define()
 
 function translate(r::ResultLimit, ctx::TranslateContext; order_by = [Get.start_date])
@@ -184,9 +184,7 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
         q = q |>
             Where(Fun.or(args = args))
     end
-    q = q |>
-        translate(c.base, ctx)
-    q
+    q |> translate(c.base, ctx, base = q)
 end
 
 function translate(d::Death, ctx::TranslateContext)
@@ -203,9 +201,7 @@ function translate(d::Death, ctx::TranslateContext)
             Where(Fun.in(Get.cause_source_concept_id,
                          translate(find_concept_set(d.death_source_concept, ctx), ctx)))
     end
-    q = q |>
-        translate(d.base, ctx)
-    q
+    q |> translate(d.base, ctx, base = q)
 end
 
 function translate(d::DeviceExposure, ctx::TranslateContext)
@@ -225,9 +221,7 @@ function translate(d::DeviceExposure, ctx::TranslateContext)
             Where(Fun.in(Get.device_source_concept_id,
                          translate(find_concept_set(d.device_source_concept, ctx), ctx)))
     end
-    q = q |>
-        translate(d.base, ctx)
-    q
+    q |> translate(d.base, ctx, base = q)
 end
 
 function translate(d::DrugEra, ctx::TranslateContext)
@@ -247,9 +241,7 @@ function translate(d::DrugEra, ctx::TranslateContext)
         q = q |>
             Where(predicate(d.era_length, ctx, field = field))
     end
-    q = q |>
-        translate(d.base, ctx)
-    q
+    q |> translate(d.base, ctx, base = q)
 end
 
 function translate(d::DrugExposure, ctx::TranslateContext)
@@ -276,9 +268,7 @@ function translate(d::DrugExposure, ctx::TranslateContext)
             Where(Fun.in(Get.drug_source_concept_id,
                          translate(find_concept_set(d.drug_source_concept, ctx), ctx)))
     end
-    q = q |>
-        translate(d.base, ctx)
-    q
+    q |> translate(d.base, ctx, base = q)
 end
 
 function translate(m::Measurement, ctx::TranslateContext)
@@ -317,9 +307,7 @@ function translate(m::Measurement, ctx::TranslateContext)
         q = q |>
             Where(Fun.or(args = args))
     end
-    q = q |>
-        translate(m.base, ctx)
-    q
+    q |> translate(m.base, ctx, base = q)
 end
 
 function translate(o::Observation, ctx::TranslateContext)
@@ -354,9 +342,7 @@ function translate(o::Observation, ctx::TranslateContext)
         q = q |>
             Where(Fun.or(args = args))
     end
-    q = q |>
-        translate(o.base, ctx)
-    q
+    q |> translate(o.base, ctx, base = q)
 end
 
 function translate(o::ObservationPeriod, ctx::TranslateContext)
@@ -377,9 +363,7 @@ function translate(o::ObservationPeriod, ctx::TranslateContext)
         q = q |>
             Where(predicate(o.period_length, ctx, field = field))
     end
-    q = q |>
-        translate(o.base, ctx)
-    q
+    q |> translate(o.base, ctx, base = q)
 end
 
 function translate(p::ProcedureOccurrence, ctx::TranslateContext)
@@ -398,9 +382,7 @@ function translate(p::ProcedureOccurrence, ctx::TranslateContext)
             Where(Fun.in(Get.procedure_source_concept_id,
                          translate(find_concept_set(p.procedure_source_concept, ctx), ctx)))
     end
-    q = q |>
-        translate(p.base, ctx)
-    q
+    q |> translate(p.base, ctx, base = q)
 end
 
 function translate(v::VisitOccurrence, ctx::TranslateContext)
@@ -419,18 +401,16 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
             Where(Fun.in(Get.visit_source_concept_id,
                          translate(find_concept_set(v.visit_source_concept, ctx), ctx)))
     end
-    q = q |>
-        translate(v.base, ctx)
-    q
+    q |> translate(v.base, ctx, base = q)
 end
 
-function translate(b::BaseCriteria, ctx::TranslateContext)
+function translate(b::BaseCriteria, ctx::TranslateContext; base)
     @assert b.occurrence_end_date === nothing
+    q = Define()
     if b.codeset_id !== nothing
-        q = Where(Fun.in(Get.concept_id,
+        q = q |>
+            Where(Fun.in(Get.concept_id,
                          translate(find_concept_set(b.codeset_id, ctx), ctx)))
-    else
-        q = Define()
     end
     #=
     q = Join(:concept => translate(find_concept_set(b.codeset_id, ctx), ctx),
@@ -443,7 +423,7 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
     end
     if b.occurrence_start_date !== nothing
         q = q |>
-        Where(predicate(b.occurrence_start_date, ctx, field = Get.start_date))
+            Where(predicate(b.occurrence_start_date, ctx, field = Get.start_date))
     end
     if b.age !== nothing || !isempty(b.gender)
         q = q |>
@@ -488,19 +468,12 @@ function translate(b::BaseCriteria, ctx::TranslateContext)
         q = q |>
             Where(Fun.and(Get.op_start_date .<= Get.start_date, Get.start_date .<= Get.op_end_date))
         q = q |>
-            translate(b.correlated_criteria, ctx)
+            translate(b.correlated_criteria, ctx, base = base |> q)
     end
     q
 end
 
-function translate(c::CriteriaGroup, ctx::TranslateContext)
-    if ctx.dialect === :redshift
-        return translate_redshift(c, ctx)
-    end
-    is_all = c.type == ALL_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
-    is_any = c.type == ANY_CRITERIA
-    is_none = c.type == AT_MOST_CRITERIA && c.count == 0
-    @assert is_all || is_any || is_none
+function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode)
     if !isempty(c.demographic_criteria)
         q = Join(:person => ctx.model.person,
                  Get.person_id .== Get.person.person_id) |>
@@ -508,6 +481,16 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
     else
         q = Define()
     end
+    q = q |>
+          Where(predicate(c, ctx))
+    return q
+end
+
+function predicate(c::CriteriaGroup, ctx::TranslateContext)
+    is_all = c.type == ALL_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
+    is_any = c.type == ANY_CRITERIA
+    is_none = c.type == AT_MOST_CRITERIA && c.count == 0
+    @assert is_all || is_any || is_none
     args = SQLNode[]
     for criteria in c.correlated_criteria
         push!(args, predicate(criteria, ctx))
@@ -515,48 +498,16 @@ function translate(c::CriteriaGroup, ctx::TranslateContext)
     for criteria in c.demographic_criteria
         push!(args, predicate(criteria, ctx))
     end
-    if !is_all
-        for group in c.groups
-            push!(args, predicate(group, ctx))
-        end
-    end
-    if !isempty(args)
-        if is_all
-            q = q |>
-                Where(Fun.and(args = args))
-        elseif is_any
-            q = q |>
-                Where(Fun.or(args = args))
-        elseif is_none
-            args = [Fun.not(arg) for arg in args]
-            q = q |>
-                Where(Fun.and(args = args))
-        end
-    end
-    if is_all
-        for group in c.groups
-            q = q |>
-                translate(group, ctx)
-        end
-    end
-    q
-end
-
-function predicate(c::CriteriaGroup, ctx::TranslateContext)
-    @assert c.count === nothing
-    @assert c.type == ALL_CRITERIA || c.type == ANY_CRITERIA
-    @assert isempty(c.demographic_criteria)
-    args = SQLNode[]
-    for criteria in c.correlated_criteria
-        push!(args, predicate(criteria, ctx))
-    end
     for group in c.groups
         push!(args, predicate(group, ctx))
     end
-    if c.type == ALL_CRITERIA
+    if is_all
         Fun.and(args = args)
-    elseif c.type == ANY_CRITERIA
+    elseif is_any
         Fun.or(args = args)
+    elseif is_none
+        args = [Fun.not(arg) for arg in args]
+        Fun.and(args = args)
     end
 end
 
@@ -636,47 +587,6 @@ function predicate(c::CorrelatedCriteria, ctx::TranslateContext)
         elseif c.occurrence.type == EXACTLY
             q = q .== c.occurrence.count
         end
-    end
-    q
-end
-
-function translate_redshift(c::CriteriaGroup, ctx::TranslateContext)
-    @assert c.count === nothing
-    @assert isempty(c.demographic_criteria)
-    @assert c.type == ALL_CRITERIA || (c.type == ANY_CRITERIA && isempty(c.groups))
-    q = Define()
-    for criteria in c.correlated_criteria
-        q = q |>
-            translate_redshift(criteria, ctx)
-    end
-    for group in c.groups
-        q = q |>
-            translate(group, ctx)
-    end
-    q
-end
-
-function translate_redshift(c::CorrelatedCriteria, ctx::TranslateContext)
-    @assert !c.restrict_visit
-    @assert c.occurrence !== nothing &&
-            c.occurrence.type == AT_LEAST &&
-            c.occurrence.count == 1 &&
-            !c.occurrence.is_distinct &&
-            c.occurrence.count_column === nothing
-    @assert c.criteria !== nothing
-    q = translate(c.criteria, ctx)
-    q = Join(q |> As(:correlated),
-             Get.person_id .== Get.correlated.person_id)
-    if !c.ignore_observation_period
-        q = q |>
-            Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
-                          Get.correlated.start_date .<= Get.op_end_date))
-    end
-    q = q |>
-        translate(c.start_window, ctx, start = true, ignore_observation_period = c.ignore_observation_period)
-    if c.end_window !== nothing
-        q = q |>
-        translate(c.end_window, ctx, start = false, ignore_observation_period = c.ignore_observation_period)
     end
     q
 end
