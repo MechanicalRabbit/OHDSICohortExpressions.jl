@@ -545,7 +545,6 @@ function translate(d::DemographicCriteria, ctx::TranslateContext)
 end
 
 function translate(c::CorrelatedCriteria, ctx::TranslateContext)
-    @assert !c.restrict_visit
     @assert c.occurrence !== nothing &&
             !c.occurrence.is_distinct &&
             c.occurrence.count_column === nothing
@@ -555,6 +554,10 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
     q = q |>
         As(:correlated) |>
         Where(Get.correlated.person_id .== Var.person_id)
+    if c.restrict_visit
+        q = q |>
+            Where(Get.correlated.visit_occurrence_id .== Var.visit_occurrence_id)
+    end
     q = q |>
         Define(:start_date => Var.start_date,
                :end_date => Var.end_date,
@@ -583,7 +586,8 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext)
              :start_date => Get.start_date,
              :end_date => Get.end_date,
              :op_start_date => Get.op_start_date,
-             :op_end_date => Get.op_end_date)
+             :op_end_date => Get.op_end_date,
+             :visit_occurrence_id => Get.visit_occurrence_id)
     if exists
         q = Fun.exists(q)
     elseif not_exists
