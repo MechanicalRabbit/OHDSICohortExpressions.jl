@@ -1,4 +1,5 @@
 using JSON
+using Dates
 using PrettyPrinting
 using FunSQL:
     FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
@@ -76,8 +77,6 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
-    @assert c.expression_limit.type == ALL || c.expression_limit.type == FIRST
-    @assert c.qualified_limit.type == ALL || c.qualified_limit.type == FIRST || c.additional_criteria === nothing
     q = translate(c.primary_criteria, ctx)
     q = q |>
         translate(c.additional_criteria, ctx)
@@ -114,7 +113,9 @@ function translate(r::ResultLimit, ctx::TranslateContext; order_by = [Get.start_
     if r.type == ALL
         return Define()
     end
-    @assert r.type == FIRST
+    if r.type == LAST
+        order_by = [Fun.datediff_day(order_by[1], Date(2020, 1, 1)), order_by[2:end]...]
+    end
     Partition(Get.person_id, order_by = order_by) |>
     Where(Agg.row_number() .== 1)
 end
@@ -138,7 +139,6 @@ end
 
 function translate(c::PrimaryCriteria, ctx::TranslateContext)
     @assert length(c.criteria_list) >= 1
-    @assert c.primary_limit.type == ALL || c.primary_limit.type == FIRST
     q = translate(c.criteria_list[1], ctx)
     if length(c.criteria_list) > 1
         list = [translate(l, ctx) for l in c.criteria_list[2:end]]
