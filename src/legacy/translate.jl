@@ -68,10 +68,17 @@ struct TranslateContext
     dialect::Symbol
     model::Model
     cohort::CohortExpression
+    group_idx::Ref{Int}
+end
+
+function next_group_alias(ctx::TranslateContext)
+    alias = Symbol(:group_, ctx.group_idx[])
+    ctx.group_idx[] += 1
+    alias
 end
 
 translate(cohort::CohortExpression, dialect, model) =
-    translate(cohort, TranslateContext(dialect, model, cohort))
+    translate(cohort, TranslateContext(dialect, model, cohort, Ref(1)))
 
 function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
@@ -473,7 +480,11 @@ function translate(b::BaseCriteria, ctx::TranslateContext; base)
     q
 end
 
-function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode)
+function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, result_alias = nothing)
+    is_all = c.type == ALL_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
+    is_any = c.type == ANY_CRITERIA
+    is_none = c.type == AT_MOST_CRITERIA && c.count == 0
+    @assert is_all || is_any || is_none
     if !isempty(c.demographic_criteria)
         q = Join(:person => ctx.model.person,
                  Get.person_id .== Get.person.person_id) |>
@@ -481,9 +492,44 @@ function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode)
     else
         q = Define()
     end
-    q = q |>
-          Where(predicate(c, ctx))
-    return q
+    if false
+        q = q |>
+              Where(predicate(c, ctx))
+        return q
+    end
+    idx = 1
+    args = SQLNode[]
+    for criteria in c.correlated_criteria
+        nested_alias = next_group_alias(ctx)
+        q = q |>
+            translate(criteria, ctx, base = base, result_alias = nested_alias)
+        push!(args, Get(nested_alias) .== 1)
+    end
+    for criteria in c.demographic_criteria
+        nested_alias = next_group_alias(ctx)
+        q = q |>
+            translate(criteria, ctx, result_alias = nested_alias)
+        push!(args, Get(nested_alias) .== 1)
+    end
+    for group in c.groups
+        nested_alias = next_group_alias(ctx)
+        q = q |>
+            translate(group, ctx, base = base, result_alias = nested_alias)
+        push!(args, Get(nested_alias) .== 1)
+    end
+    if is_all
+        p = Fun.and(args = args)
+    elseif is_any
+        p = Fun.or(args = args)
+    elseif is_none
+        args = [Fun.not(arg) for arg in args]
+        p = Fun.and(args = args)
+    end
+    if result_alias !== nothing
+        q |> Define(result_alias => Fun.case(p, 1, 0))
+    else
+        q |> Where(p)
+    end
 end
 
 function predicate(c::CriteriaGroup, ctx::TranslateContext)
@@ -511,6 +557,10 @@ function predicate(c::CriteriaGroup, ctx::TranslateContext)
     end
 end
 
+function translate(d::DemographicCriteria, ctx::TranslateContext; result_alias)
+    Define(result_alias => Fun.case(predicate(d, ctx), 1, 0))
+end
+
 function predicate(d::DemographicCriteria, ctx::TranslateContext)
     @assert isempty(d.ethnicity)
     @assert isempty(d.race)
@@ -524,6 +574,56 @@ function predicate(d::DemographicCriteria, ctx::TranslateContext)
         push!(args, predicate(d.occurrence_start_date, ctx, field = Get.start_date))
     end
     Fun.and(args = args)
+end
+
+function translate(c::CorrelatedCriteria, ctx::TranslateContext; base, result_alias)
+    @assert c.occurrence !== nothing &&
+            c.occurrence.count_column === nothing
+    @assert c.occurrence.type in (AT_LEAST, AT_MOST, EXACTLY)
+    @assert c.criteria !== nothing
+    q = base |>
+        Join(:correlated => translate(c.criteria, ctx),
+             Get.correlated.person_id .== Get.person_id)
+    if c.restrict_visit
+        q = q |>
+            Where(Get.correlated.visit_occurrence_id .== Get.visit_occurrence_id)
+    end
+    if !c.ignore_observation_period
+        q = q |>
+            Where(Fun.and(Get.op_start_date .<= Get.correlated.start_date,
+                          Get.correlated.start_date .<= Get.op_end_date))
+    end
+    q = q |>
+        translate(c.start_window, ctx, start = true, ignore_observation_period = c.ignore_observation_period)
+    if c.end_window !== nothing
+        q = q |>
+            translate(c.end_window, ctx, start = false, ignore_observation_period = c.ignore_observation_period)
+    end
+    q = q |>
+        Group(Get.person_id, Get.event_id)
+    if c.occurrence.is_distinct
+        q = q |>
+            Define(:count => Agg.count(distinct = true, Get.correlated.concept_id))
+    else
+        q = q |>
+            Define(:count => Agg.count())
+    end
+    correlated_alias = Symbol(:correlated_, result_alias)
+    q = Join(correlated_alias => q,
+             Fun.and(Get.person_id .== (Get(correlated_alias) |> Get.person_id),
+                     Get.event_id .== (Get(correlated_alias) |> Get.event_id)),
+             left = true)
+    count = Fun.coalesce(Get(correlated_alias) |> Get.count, 0)
+    if c.occurrence.type == AT_LEAST
+        p = count .>= c.occurrence.count
+    elseif c.occurrence.type == AT_MOST
+        p = count .<= c.occurrence.count
+    elseif c.occurrence.type == EXACTLY
+        p = count .== c.occurrence.count
+    end
+    q = q |>
+        Define(result_alias => Fun.case(p, 1, 0))
+    q
 end
 
 function predicate(c::CorrelatedCriteria, ctx::TranslateContext)
