@@ -4,7 +4,7 @@ using PrettyPrinting
 using FunSQL:
     FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
     LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW,
-    Lit
+    Lit, render, SQLTable
 
 import ..Model, ..Source
 
@@ -52,23 +52,27 @@ function FunSQL.render(ctx, val::Bool)
     end
 end
 
-translate(cohort; dialect, model = Model()) =
-    translate(cohort, dialect, model)
+translate(cohort; dialect, model = Model(), cohort_definition_id) =
+    translate(cohort, dialect, model, cohort_definition_id)
 
-translate(cohort, source::Source) =
-    translate(cohort, source.dialect, source.model)
+translate(cohort, source::Source; cohort_definition_id) =
+    translate(cohort, source.dialect, source.model, cohort_definition_id)
 
-translate(cohort::String, dialect, model) =
-    translate(JSON.parse(cohort), dialect, model)
+translate(cohort::String, dialect, model, cohort_definition_id) =
+    translate(JSON.parse(cohort), dialect, model, cohort_definition_id)
 
-translate(cohort::Dict, dialect, model) =
-    translate(unpack!(cohort), dialect, model)
+translate(cohort::Dict, dialect, model, cohort_definition_id) =
+    translate(unpack!(cohort), dialect, model, cohort_definition_id)
 
 struct TranslateContext
     dialect::Symbol
     model::Model
     cohort::CohortExpression
+    cohort_definition_id::Int
     group_idx::Ref{Int}
+    statements::Vector{String}
+    temp_idx::Ref{Int}
+    temp_map::Dict{SQLNode, SQLNode}
 end
 
 function next_group_alias(ctx::TranslateContext)
@@ -77,17 +81,58 @@ function next_group_alias(ctx::TranslateContext)
     alias
 end
 
-translate(cohort::CohortExpression, dialect, model) =
-    translate(cohort, TranslateContext(dialect, model, cohort, Ref(1)))
+function as_temp_table(ctx::TranslateContext, q)
+    if q in keys(ctx.temp_map)
+        return ctx.temp_map[q]
+    end
+    temp_table_name = Symbol(:temp_, ctx.temp_idx[])
+    if ctx.dialect === :sqlserver
+        temp_table_name = Symbol("#", temp_table_name)
+    end
+    ctx.temp_idx[] += 1
+    key = q
+    q = q |>
+        Select(:person_id => Get.person_id,
+               :event_id => Get.event_id,
+               :start_date => Get.start_date,
+               :end_date => Get.end_date,
+               :sort_date => Get.sort_date,
+               :op_start_date => Get.op_start_date,
+               :op_end_date => Get.op_end_date,
+               :visit_occurrence_id => Get.visit_occurrence_id)
+    sql = render(q, dialect = ctx.dialect)
+    sql =
+        if ctx.dialect === :sqlserver
+            "SELECT person_id, event_id, start_date, end_date, sort_date, op_start_date, op_end_date, visit_occurrence_id \nINTO $temp_table_name\nFROM (\n$sql\n) AS t;\n"
+        elseif ctx.dialect === :redshift
+            error()
+        else
+            "CREATE TEMP TABLE $temp_table_name AS\n$sql;\n"
+        end
+    push!(ctx.statements, sql)
+    val = From(SQLTable(temp_table_name, columns = [:person_id, :event_id, :start_date, :end_date, :sort_date, :op_start_date, :op_end_date, :visit_occurrence_id]))
+    ctx.temp_map[key] = val
+    val
+end
+
+function translate(cohort::CohortExpression, dialect, model, cohort_definition_id)
+    ctx = TranslateContext(dialect, model, cohort, cohort_definition_id, Ref(1), String[], Ref(1), Dict{SQLNode, SQLNode}())
+    translate(cohort, ctx)
+    join(ctx.statements)
+end
 
 function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
-    q = base = translate(c.primary_criteria, ctx)
-    q = q |>
-        translate(c.additional_criteria, ctx, base = base)
+    push!(ctx.statements, "DELETE FROM cohort\nWHERE cohort_definition_id = $(ctx.cohort_definition_id);\n")
+    q = translate(c.primary_criteria, ctx)
+    if c.additional_criteria !== nothing || !isempty(c.inclusion_rules)
+        q = base = as_temp_table(ctx, q)
+    end
     if c.additional_criteria !== nothing
+        q = q |>
+            translate(c.additional_criteria, ctx, base = base)
         q = q |>
             translate(c.qualified_limit, ctx)
     end
@@ -110,7 +155,12 @@ function translate(c::CohortExpression, ctx::TranslateContext)
         Select(:subject_id => Get.person_id,
                :cohort_start_date => Get.start_date,
                :cohort_end_date => Get.end_date)
-    q
+    q = q |> Select(:cohort_definition_id => ctx.cohort_definition_id,
+                    Get.subject_id,
+                    Get.cohort_start_date,
+                    Get.cohort_end_date)
+    sql = render(q, dialect = ctx.dialect)
+    push!(ctx.statements, "INSERT INTO cohort\n$sql;\n")
 end
 
 translate(::Nothing, ctx::TranslateContext; base = nothing) =
@@ -133,8 +183,8 @@ function translate(d::DateOffsetStrategy, ctx::TranslateContext)
         d.date_field == END_DATE ? Get.end_date :
         nothing
     Define(:end_date => dateadd_day(field, d.offset)) |>
-    Define(:end_date => Fun.case(Get.end_date .<= Get.op.end_date,
-                                 Get.end_date, Get.op.end_date))
+    Define(:end_date => Fun.case(Get.end_date .<= Get.op_end_date,
+                                 Get.end_date, Get.op_end_date))
 end
 
 function dateadd_day(n, delta::Integer)
@@ -191,7 +241,7 @@ function translate(c::ConditionOccurrence, ctx::TranslateContext)
         q = q |>
             Where(Fun.or(args = args))
     end
-    q |> translate(c.base, ctx, base = q)
+    translate(c.base, ctx, base = q)
 end
 
 function translate(d::Death, ctx::TranslateContext)
@@ -202,13 +252,14 @@ function translate(d::Death, ctx::TranslateContext)
                :event_id => 0,
                :start_date => Get.death_date,
                :end_date => dateadd_day(Get.death_date, 1),
-               :sort_date => Get.death_date)
+               :sort_date => Get.death_date,
+               :visit_occurrence_id => 0)
     if d.death_source_concept !== nothing
         q = q |>
             Where(Fun.in(Get.cause_source_concept_id,
                          translate(find_concept_set(d.death_source_concept, ctx), ctx)))
     end
-    q |> translate(d.base, ctx, base = q)
+    translate(d.base, ctx, base = q)
 end
 
 function translate(d::DeviceExposure, ctx::TranslateContext)
@@ -228,7 +279,7 @@ function translate(d::DeviceExposure, ctx::TranslateContext)
             Where(Fun.in(Get.device_source_concept_id,
                          translate(find_concept_set(d.device_source_concept, ctx), ctx)))
     end
-    q |> translate(d.base, ctx, base = q)
+    translate(d.base, ctx, base = q)
 end
 
 function translate(d::DrugEra, ctx::TranslateContext)
@@ -242,13 +293,14 @@ function translate(d::DrugEra, ctx::TranslateContext)
                :event_id => Get.drug_era_id,
                :start_date => Get.drug_era_start_date,
                :end_date => Get.drug_era_end_date,
-               :sort_date => Get.drug_era_start_date)
+               :sort_date => Get.drug_era_start_date,
+               :visit_occurrence_id => 0)
     if d.era_length !== nothing
         field = Fun.datediff_day(Get.drug_era_end_date, Get.drug_era_start_date)
         q = q |>
             Where(predicate(d.era_length, ctx, field = field))
     end
-    q |> translate(d.base, ctx, base = q)
+    translate(d.base, ctx, base = q)
 end
 
 function translate(d::DrugExposure, ctx::TranslateContext)
@@ -275,7 +327,7 @@ function translate(d::DrugExposure, ctx::TranslateContext)
             Where(Fun.in(Get.drug_source_concept_id,
                          translate(find_concept_set(d.drug_source_concept, ctx), ctx)))
     end
-    q |> translate(d.base, ctx, base = q)
+    translate(d.base, ctx, base = q)
 end
 
 function translate(m::Measurement, ctx::TranslateContext)
@@ -314,7 +366,7 @@ function translate(m::Measurement, ctx::TranslateContext)
         q = q |>
             Where(Fun.or(args = args))
     end
-    q |> translate(m.base, ctx, base = q)
+    translate(m.base, ctx, base = q)
 end
 
 function translate(o::Observation, ctx::TranslateContext)
@@ -349,7 +401,7 @@ function translate(o::Observation, ctx::TranslateContext)
         q = q |>
             Where(Fun.or(args = args))
     end
-    q |> translate(o.base, ctx, base = q)
+    translate(o.base, ctx, base = q)
 end
 
 function translate(o::ObservationPeriod, ctx::TranslateContext)
@@ -364,13 +416,14 @@ function translate(o::ObservationPeriod, ctx::TranslateContext)
         Define(:event_id => Get.observation_period_id,
                :start_date => Get.observation_period_start_date,
                :end_date => Get.observation_period_end_date,
-               :sort_date => Get.observation_period_start_date)
+               :sort_date => Get.observation_period_start_date,
+               :visit_occurrence_id => 0)
     if o.period_length !== nothing
         field = Fun.datediff_day(Get.end_date, Get.start_date)
         q = q |>
             Where(predicate(o.period_length, ctx, field = field))
     end
-    q |> translate(o.base, ctx, base = q)
+    translate(o.base, ctx, base = q)
 end
 
 function translate(p::ProcedureOccurrence, ctx::TranslateContext)
@@ -389,7 +442,7 @@ function translate(p::ProcedureOccurrence, ctx::TranslateContext)
             Where(Fun.in(Get.procedure_source_concept_id,
                          translate(find_concept_set(p.procedure_source_concept, ctx), ctx)))
     end
-    q |> translate(p.base, ctx, base = q)
+    translate(p.base, ctx, base = q)
 end
 
 function translate(v::VisitOccurrence, ctx::TranslateContext)
@@ -408,12 +461,12 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
             Where(Fun.in(Get.visit_source_concept_id,
                          translate(find_concept_set(v.visit_source_concept, ctx), ctx)))
     end
-    q |> translate(v.base, ctx, base = q)
+    translate(v.base, ctx, base = q)
 end
 
 function translate(b::BaseCriteria, ctx::TranslateContext; base)
     @assert b.occurrence_end_date === nothing
-    q = Define()
+    q = base
     if b.codeset_id !== nothing
         q = q |>
             Where(Fun.in(Get.concept_id,
@@ -474,15 +527,19 @@ function translate(b::BaseCriteria, ctx::TranslateContext; base)
                    :op_end_date => Get.op_.observation_period_end_date)
         q = q |>
             Where(Fun.and(Get.op_start_date .<= Get.start_date, Get.start_date .<= Get.op_end_date))
+        q = as_temp_table(ctx, q)
         q = q |>
-            translate(b.correlated_criteria, ctx, base = base |> q)
+            translate(b.correlated_criteria, ctx, base = q)
     end
     q
 end
 
+is_simple_group(c::CriteriaGroup, ctx::TranslateContext) =
+    false
+
 function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, result_alias = nothing)
-    is_all = c.type == ALL_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
-    is_any = c.type == ANY_CRITERIA
+    is_all = c.type == ALL_CRITERIA
+    is_any = c.type == ANY_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
     is_none = c.type == AT_MOST_CRITERIA && c.count == 0
     @assert is_all || is_any || is_none
     if !isempty(c.demographic_criteria)
@@ -533,8 +590,8 @@ function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, resul
 end
 
 function predicate(c::CriteriaGroup, ctx::TranslateContext)
-    is_all = c.type == ALL_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
-    is_any = c.type == ANY_CRITERIA
+    is_all = c.type == ALL_CRITERIA
+    is_any = c.type == ANY_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
     is_none = c.type == AT_MOST_CRITERIA && c.count == 0
     @assert is_all || is_any || is_none
     args = SQLNode[]
