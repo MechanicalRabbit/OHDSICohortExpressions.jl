@@ -534,10 +534,14 @@ function translate(b::BaseCriteria, ctx::TranslateContext; base)
     q
 end
 
-is_simple_group(c::CriteriaGroup, ctx::TranslateContext) =
-    false
 
-function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, result_alias = nothing)
+is_inner(c::CriteriaGroup) =
+    c.type == ALL_CRITERIA && all(is_inner, c.correlated_criteria) && all(is_inner, c.groups)
+
+join_subsumes_where(c::CriteriaGroup) =
+    c.type == ALL_CRITERIA && all(join_subsumes_where, c.correlated_criteria) && all(join_subsumes_where, c.groups) && isempty(c.demographic_criteria)
+
+function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, result_alias = nothing, inner = is_inner(c))
     is_all = c.type == ALL_CRITERIA
     is_any = c.type == ANY_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
     is_none = c.type == AT_MOST_CRITERIA && c.count == 0
@@ -559,8 +563,10 @@ function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, resul
     for criteria in c.correlated_criteria
         nested_alias = next_group_alias(ctx)
         q = q |>
-            translate(criteria, ctx, base = base, result_alias = nested_alias)
-        push!(args, Get(nested_alias) .== 1)
+            translate(criteria, ctx, base = base, result_alias = nested_alias, inner = inner)
+        if !(inner && join_subsumes_where(criteria))
+            push!(args, Get(nested_alias) .== 1)
+        end
     end
     for criteria in c.demographic_criteria
         nested_alias = next_group_alias(ctx)
@@ -571,8 +577,10 @@ function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, resul
     for group in c.groups
         nested_alias = next_group_alias(ctx)
         q = q |>
-            translate(group, ctx, base = base, result_alias = nested_alias)
-        push!(args, Get(nested_alias) .== 1)
+            translate(group, ctx, base = base, result_alias = nested_alias, inner = inner)
+        if !(inner && join_subsumes_where(group))
+            push!(args, Get(nested_alias) .== 1)
+        end
     end
     if is_all
         p = Fun.and(args = args)
@@ -583,10 +591,13 @@ function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, resul
         p = Fun.and(args = args)
     end
     if result_alias !== nothing
-        q |> Define(result_alias => Fun.case(p, 1, 0))
+        q = q |>
+            Define(result_alias => Fun.case(p, 1, 0))
     else
-        q |> Where(p)
+        q = q |>
+            Where(p)
     end
+    q
 end
 
 function predicate(c::CriteriaGroup, ctx::TranslateContext)
@@ -633,7 +644,13 @@ function predicate(d::DemographicCriteria, ctx::TranslateContext)
     Fun.and(args = args)
 end
 
-function translate(c::CorrelatedCriteria, ctx::TranslateContext; base, result_alias)
+is_inner(c::CorrelatedCriteria) =
+    c.occurrence.type in (AT_LEAST, EXACTLY) && c.occurrence.count > 0
+
+join_subsumes_where(c::CorrelatedCriteria) =
+    c.occurrence.type == AT_LEAST && c.occurrence.count == 1
+
+function translate(c::CorrelatedCriteria, ctx::TranslateContext; base, result_alias, inner)
     @assert c.occurrence !== nothing &&
             c.occurrence.count_column === nothing
     @assert c.occurrence.type in (AT_LEAST, AT_MOST, EXACTLY)
@@ -669,7 +686,7 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext; base, result_al
     q = Join(correlated_alias => q,
              Fun.and(Get.person_id .== (Get(correlated_alias) |> Get.person_id),
                      Get.event_id .== (Get(correlated_alias) |> Get.event_id)),
-             left = true)
+             left = !inner)
     count = Fun.coalesce(Get(correlated_alias) |> Get.count, 0)
     if c.occurrence.type == AT_LEAST
         p = count .>= c.occurrence.count
