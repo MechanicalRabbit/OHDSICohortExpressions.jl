@@ -464,6 +464,12 @@ function translate(v::VisitOccurrence, ctx::TranslateContext)
     translate(v.base, ctx, base = q)
 end
 
+is_simple(c, ctx::TranslateContext) =
+    is_simple(c.base, ctx)
+
+is_simple(b::BaseCriteria, ctx::TranslateContext) =
+    b.correlated_criteria === nothing
+
 function translate(b::BaseCriteria, ctx::TranslateContext; base)
     @assert b.occurrence_end_date === nothing
     q = base
@@ -534,12 +540,14 @@ function translate(b::BaseCriteria, ctx::TranslateContext; base)
     q
 end
 
-
 is_inner(c::CriteriaGroup) =
     c.type == ALL_CRITERIA && all(is_inner, c.correlated_criteria) && all(is_inner, c.groups)
 
 join_subsumes_where(c::CriteriaGroup) =
     c.type == ALL_CRITERIA && all(join_subsumes_where, c.correlated_criteria) && all(join_subsumes_where, c.groups) && isempty(c.demographic_criteria)
+
+is_simple(c::CriteriaGroup, ctx::TranslateContext) =
+    isempty(c.groups) && all(cc -> is_simple(cc, ctx), c.correlated_criteria) && ctx.dialect !== :redshift
 
 function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, result_alias = nothing, inner = is_inner(c))
     is_all = c.type == ALL_CRITERIA
@@ -553,9 +561,15 @@ function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, resul
     else
         q = Define()
     end
-    if false
-        q = q |>
-              Where(predicate(c, ctx))
+    if is_simple(c, ctx)
+        p = predicate(c, ctx)
+        if result_alias !== nothing
+            q = q |>
+                Define(result_alias => Fun.case(p, 1, 0))
+        else
+            q = q |>
+                  Where(p)
+        end
         return q
     end
     idx = 1
@@ -649,6 +663,10 @@ is_inner(c::CorrelatedCriteria) =
 
 join_subsumes_where(c::CorrelatedCriteria) =
     c.occurrence.type == AT_LEAST && c.occurrence.count == 1
+
+is_simple(c::CorrelatedCriteria, ctx::TranslateContext) =
+    (c.occurrence.type == AT_LEAST && c.occurrence.count == 1) &&
+    is_simple(c.criteria, ctx)
 
 function translate(c::CorrelatedCriteria, ctx::TranslateContext; base, result_alias, inner)
     @assert c.occurrence !== nothing &&
