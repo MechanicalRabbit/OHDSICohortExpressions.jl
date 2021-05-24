@@ -104,8 +104,6 @@ function as_temp_table(ctx::TranslateContext, q)
     sql =
         if ctx.dialect === :sqlserver
             "SELECT person_id, event_id, start_date, end_date, sort_date, op_start_date, op_end_date, visit_occurrence_id \nINTO $temp_table_name\nFROM (\n$sql\n) AS t;\n"
-        elseif ctx.dialect === :redshift
-            error()
         else
             "CREATE TEMP TABLE $temp_table_name AS\n$sql;\n"
         end
@@ -863,30 +861,22 @@ end
 
 function translate(items::Vector{ConceptSetItem}, ctx::TranslateContext)
     # TODO: Fun.in
+    args = [Get.concept_id .== item.concept.concept_id for item in items]
+    q = From(ctx.model.concept) |>
+        Where(Fun.or(args = args))
     with_descendants = [item for item in items if item.include_descendants]
-    wo_descendants = [item for item in items if !item.include_descendants]
-    with_q = wo_q = nothing
     if !isempty(with_descendants)
         args = [Get.ancestor_concept_id .== item.concept.concept_id for item in with_descendants]
-        with_q = From(ctx.model.concept) |>
-                 Where(Fun."is null"(Get.invalid_reason)) |>
-                 Join(ctx.model.concept_ancestor,
-                      Get.concept_id .== Get.descendant_concept_id) |>
-                 Where(Fun.or(args = args))
-    end
-    if !isempty(wo_descendants)
-        args = [Get.concept_id .== item.concept.concept_id for item in wo_descendants]
-        wo_q = From(ctx.model.concept) |>
+        q = q |>
+            Append(
+                From(ctx.model.concept) |>
                 Where(Fun."is null"(Get.invalid_reason)) |>
-                Where(Fun.or(args = args))
+                Join(ctx.model.concept_ancestor,
+                     Get.concept_id .== Get.descendant_concept_id) |>
+                Where(Fun.or(args = args))) |>
+            Group(Get.concept_id)
     end
-    if with_q === nothing
-        return wo_q
-    elseif wo_q === nothing
-        return with_q
-    else
-        return with_q |> Append(wo_q)
-    end
+    q
 end
 
 function predicate(r::Union{NumericRange, DateRange}, ctx::TranslateContext; field)
