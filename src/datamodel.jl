@@ -50,6 +50,8 @@ struct Model
                    target_schema = nothing,
                    target_table = nothing)
         cdm_version = something(cdm_version, v"5.3.1")
+        cdm_version = typeof(cdm_version) == VersionNumber ?
+                          cdm_version : VersionNumber(cdm_version)
         @assert v"5.2" <= cdm_version < v"5.4"
         attribute_definition =
             SQLTable(schema = cdm_schema,

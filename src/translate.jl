@@ -113,16 +113,34 @@ function as_temp_table(ctx::TranslateContext, q)
 end
 
 function translate(cohort::CohortExpression, dialect, model, cohort_definition_id)
-    ctx = TranslateContext(dialect, model, cohort, cohort_definition_id, Ref(1), String[], Ref(1), Dict{SQLNode, SQLNode}())
+    ctx = TranslateContext(Symbol(dialect), model, cohort, cohort_definition_id, Ref(1), String[], Ref(1), Dict{SQLNode, SQLNode}())
     translate(cohort, ctx)
     join(ctx.statements)
+end
+
+function escape_name(dialect, name)
+    if dialect === :sqlserver
+        return "[$(replace(string(name), ']' => "]]"))]"
+    else
+        return "\"$(replace(string(name), '"' => "\"\""))\""
+    end
+end
+
+function cohort_table(ctx::TranslateContext)
+    cohort = ctx.model.cohort
+    d = ctx.dialect
+    if isnothing(cohort.schema) || "" == string(cohort.schema)
+        return escape_name(d, cohort.name)
+    end
+    escape_name(d, cohort.schema) * "." * escape_name(d, cohort.name)
 end
 
 function translate(c::CohortExpression, ctx::TranslateContext)
     @assert c.censor_window.start_date === c.censor_window.end_date === nothing
     @assert isempty(c.censoring_criteria)
     @assert c.end_strategy === nothing || c.end_strategy isa DateOffsetStrategy
-    push!(ctx.statements, "DELETE FROM cohort\nWHERE cohort_definition_id = $(ctx.cohort_definition_id);\n")
+    cname = cohort_table(ctx)
+    push!(ctx.statements, "DELETE FROM $(cname)\nWHERE cohort_definition_id = $(ctx.cohort_definition_id);\n")
     q = translate(c.primary_criteria, ctx)
     if c.additional_criteria !== nothing || !isempty(c.inclusion_rules)
         q = base = as_temp_table(ctx, q)
@@ -157,7 +175,8 @@ function translate(c::CohortExpression, ctx::TranslateContext)
                     Get.cohort_start_date,
                     Get.cohort_end_date)
     sql = render(q, dialect = ctx.dialect)
-    push!(ctx.statements, "INSERT INTO cohort\n$sql;\n")
+    cname = cohort_table(ctx)
+    push!(ctx.statements, "INSERT INTO $cname\n$sql;\n")
 end
 
 translate(::Nothing, ctx::TranslateContext; base = nothing) =

@@ -34,9 +34,9 @@ julia> cohort = JSON.parsefile("demo/ex-10-2.json");
 
 julia> using OHDSICohortExpressions: translate, Model
 
-julia> model = Model(cdm_version=v"5.3.1", cdm_schema="cdm", 
+julia> model = Model(cdm_version=v"5.3.1", cdm_schema="cdm",
                      vocabulary_schema="vcb", results_schema="res",
-                     target_schema="", target_table="cohort");
+                     target_schema="res", target_table="cohort");
 
 julia> tsql = translate(cohort, dialect=:sqlserver, model=model,
                          cohort_definition_id=1);
@@ -47,6 +47,52 @@ julia> println(tsql)
 The return value, `tsql` is a SQL string with a transaction that
 populates the `cohort` table for cohort definition `1`.
 
+### Usage from "R"
+
+Using [JuliaCall][julia-call] library, one could call this function from
+"R". First, one must install `JuliaCall`.
+
+```R
+> install.packages("JuliaCall")
+```
+
+You could then initialize the Julia environment, and install this
+library to the Julia environment.
+
+```R
+> library("JuliaCall")
+> julia_setup(installJulia = TRUE)
+> julia_install_package_if_needed("OHDSICohortExpressions")
+```
+
+Read the `cohort` file into an R variable.
+
+```R
+> library("readr")
+> cohort <- read_file("demo/ex-10-2.json")
+```
+
+Setup this library and the data model parameters.
+
+```R
+> oce <- julia_pkg_import("OHDSICohortExpressions",
+                          func_list = c("translate", "Model"))
+> model = oce$Model(cdm_version="5.3.1", cdm_schema="cdm",
+                    vocabulary_schema="vcb", results_schema="res",
+                    target_schema="res", target_table="cohort")
+
+```
+
+You can then translate this cohort definition into the SQL
+transaction.
+
+```R
+> sql = oce$translate(cohort, dialect="sqlserver", model=model,
+                      cohort_definition_id=1)
+```
+
+[julia]: https://julialang.org/downloads/
+[julia-call]: https://www.rdocumentation.org/packages/JuliaCall/versions/0.17.4
 [ex-10-2]: https://ohdsi.github.io/TheBookOfOhdsi/Cohorts.html#exr:exerciseCohortsSql
 [chat-img]: https://img.shields.io/badge/chat-julia--zulip-blue
 [chat-url]: https://julialang.zulipchat.com/#narrow/stream/237221-biology-health-and-medicine
