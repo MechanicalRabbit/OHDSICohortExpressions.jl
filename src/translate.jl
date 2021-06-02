@@ -6,8 +6,6 @@ using FunSQL:
     LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW,
     Lit, render, SQLTable
 
-import ..Model, ..Source
-
 function FunSQL.translate(::Val{:extract_year}, n::FunctionNode, treq)
     args = FunSQL.translate(n.args, treq)
     if length(args) == 1
@@ -54,9 +52,6 @@ end
 
 translate(cohort; dialect, model = Model(), cohort_definition_id) =
     translate(cohort, dialect, model, cohort_definition_id)
-
-translate(cohort, source::Source; cohort_definition_id) =
-    translate(cohort, source.dialect, source.model, cohort_definition_id)
 
 translate(cohort::String, dialect, model, cohort_definition_id) =
     translate(JSON.parse(cohort), dialect, model, cohort_definition_id)
