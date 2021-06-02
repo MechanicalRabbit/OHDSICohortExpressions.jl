@@ -1,0 +1,56 @@
+# OHDSICohortExpressions.jl
+
+*OHDSI Cohort Expressions is a re-implementation of OHDSI's Circe*
+
+[![Zulip Chat][chat-img]][chat-url]
+[![Open Issues][issues-img]][issues-url]
+[![Apache License][license-img]][license-url]
+
+This is a proof-of-concept implementation of a conversion from the JSON
+cohort definitions used in the OHDSI ecosystem into an SQL transaction.
+
+### Project Status
+
+At this time, this implementation is able to convert all 797 cohorts
+from PhenotypeLibrary v0.1 to generate SQL that works against Amazon
+RedShift, Microsoft SQL Server, and PostgreSQL.
+
+There are significant gaps in functionality. Many expressions available
+in the JSON cohort definition have yet to be translated. In these cases,
+an assertion error should arise. We have yet to write documentation,
+perform code review, or construct regression tests. The API is in a
+provisional form and very likely to change.
+
+### Example Usage
+
+Following is an example given the `demo/ex-10-2.json` cohort. This
+corresponds to [excercise 10.2][ex-10-2] from the Book of OHDSI.
+Supported dialects are `:redshift`, `:sqlserver`, and `:postgresql`.
+
+```julia
+julia> using JSON
+
+julia> cohort = JSON.parsefile("demo/ex-10-2.json");
+
+julia> using OHDSICohortExpressions: translate, Model
+
+julia> model = Model(cdm_version=v"5.3.1", cdm_schema="cdm", 
+                     vocabulary_schema="vcb", results_schema="res",
+                     target_schema="", target_table="cohort");
+
+julia> tsql = translate(cohort, dialect=:sqlserver, model=model,
+                         cohort_definition_id=1);
+
+julia> println(tsql)
+```
+
+The return value, `tsql` is a SQL string with a transaction that
+populates the `cohort` table for cohort definition `1`.
+
+[ex-10-2]: https://ohdsi.github.io/TheBookOfOhdsi/Cohorts.html#exr:exerciseCohortsSql
+[chat-img]: https://img.shields.io/badge/chat-julia--zulip-blue
+[chat-url]: https://julialang.zulipchat.com/#narrow/stream/237221-biology-health-and-medicine
+[issues-img]: https://img.shields.io/github/issues/MechanicalRabbit/OHDSICohortExpressions.jl.svg
+[issues-url]: https://github.com/MechanicalRabbit/OHDSICohortExpressions.jl/issues
+[license-img]: https://img.shields.io/badge/license-Apache-blue.svg
+[license-url]: https://raw.githubusercontent.com/MechanicalRabbit/OHDSICohortExpressions.jl/master/LICENSE

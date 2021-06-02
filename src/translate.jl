@@ -56,8 +56,12 @@ translate(cohort; dialect, model = Model(), cohort_definition_id) =
 translate(cohort::String, dialect, model, cohort_definition_id) =
     translate(JSON.parse(cohort), dialect, model, cohort_definition_id)
 
-translate(cohort::Dict, dialect, model, cohort_definition_id) =
-    translate(unpack!(cohort), dialect, model, cohort_definition_id)
+function translate(cohort::Dict, dialect, model, cohort_definition_id)
+    cohort = deepcopy(cohort)
+    res = translate(unpack!(cohort), dialect, model, cohort_definition_id)
+    @assert isempty(cohort)
+    return res
+end
 
 struct TranslateContext
     dialect::Symbol
