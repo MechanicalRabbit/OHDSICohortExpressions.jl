@@ -42,14 +42,6 @@ function FunSQL.translate(::Val{:datediff_day}, n::FunctionNode, treq)
     FunSQL.translate_default(n, treq)
 end
 
-function FunSQL.render(ctx, val::Bool)
-    if ctx.dialect.name === :sqlserver
-        print(ctx, val ? 1 : 0)
-    else
-        print(ctx, val ? "TRUE" : "FALSE")
-    end
-end
-
 translate(cohort; dialect, model = Model(), cohort_definition_id) =
     translate(cohort, dialect, model, cohort_definition_id)
 

@@ -65,6 +65,21 @@ library to the Julia environment.
 > julia_install_package_if_needed("OHDSICohortExpressions")
 ```
 
+Construct an "R" proxy, `oce`, to the `Model` and `translate` functions.
+
+```R
+> oce <- julia_pkg_import("OHDSICohortExpressions",
+                          func_list = c("Model", "translate"))
+```
+
+Construct a `model` object with data model parameters.
+
+```R
+> model = oce$Model(cdm_version="5.3.1", cdm_schema="cdm",
+                    vocabulary_schema="vcb", results_schema="res",
+                    target_schema="res", target_table="cohort")
+```
+
 Read the `cohort` file into an R variable.
 
 ```R
@@ -72,23 +87,11 @@ Read the `cohort` file into an R variable.
 > cohort <- read_file("demo/ex-10-2.json")
 ```
 
-Setup this library and the data model parameters.
+Translate this cohort definition into the SQL transaction.
 
 ```R
-> oce <- julia_pkg_import("OHDSICohortExpressions",
-                          func_list = c("translate", "Model"))
-> model = oce$Model(cdm_version="5.3.1", cdm_schema="cdm",
-                    vocabulary_schema="vcb", results_schema="res",
-                    target_schema="res", target_table="cohort")
-
-```
-
-You can then translate this cohort definition into the SQL
-transaction.
-
-```R
-> sql = oce$translate(cohort, dialect="sqlserver", model=model,
-                      cohort_definition_id=1)
+> tsql = oce$translate(cohort, dialect="sqlserver", model=model,
+                       cohort_definition_id=1)
 ```
 
 [julia]: https://julialang.org/downloads/
