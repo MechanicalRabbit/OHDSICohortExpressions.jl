@@ -28,9 +28,7 @@ corresponds to [excercise 10.2][ex-10-2] from the Book of OHDSI.
 Supported dialects are `:redshift`, `:sqlserver`, and `:postgresql`.
 
 ```julia
-julia> using JSON
-
-julia> cohort = JSON.parsefile("demo/ex-10-2.json");
+julia> cohort = read("demo/ex-10-2.json", String)
 
 julia> using OHDSICohortExpressions: translate, Model
 
