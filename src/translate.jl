@@ -6,40 +6,40 @@ using FunSQL:
     LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW,
     Lit, render, SQLTable
 
-function FunSQL.translate(::Val{:extract_year}, n::FunctionNode, treq)
-    args = FunSQL.translate(n.args, treq)
+function FunSQL.translate(::Val{:extract_year}, n::FunctionNode, ctx)
+    args = FunSQL.translate(n.args, ctx)
     if length(args) == 1
-        if treq.ctx.dialect.name === :sqlserver
+        if ctx.dialect.name === :sqlserver
             return FUN(:YEAR, args[1])
         else
             return FUN(:EXTRACT, OP(:year), args[1] |> KW(:FROM))
         end
     end
-    FunSQL.translate_default(n, treq)
+    FunSQL.translate_default(n, ctx)
 end
 
-function FunSQL.translate(::Val{:dateadd_day}, n::FunctionNode, treq)
-    args = FunSQL.translate(n.args, treq)
+function FunSQL.translate(::Val{:dateadd_day}, n::FunctionNode, ctx)
+    args = FunSQL.translate(n.args, ctx)
     if length(args) == 2
-        if treq.ctx.dialect.name === :sqlserver
+        if ctx.dialect.name === :sqlserver
             return FUN(:DATEADD, args = [OP(:day), args[2], args[1]])
         else
             return OP(:+, args = [args[1], args[2]])
         end
     end
-    FunSQL.translate_default(n, treq)
+    FunSQL.translate_default(n, ctx)
 end
 
-function FunSQL.translate(::Val{:datediff_day}, n::FunctionNode, treq)
-    args = FunSQL.translate(n.args, treq)
+function FunSQL.translate(::Val{:datediff_day}, n::FunctionNode, ctx)
+    args = FunSQL.translate(n.args, ctx)
     if length(args) == 2
-        if treq.ctx.dialect.name === :sqlserver
+        if ctx.dialect.name === :sqlserver
             return FUN(:DATEDIFF, args = [OP(:day), args[2], args[1]])
         else
             return OP(:-, args = [args[1], args[2]])
         end
     end
-    FunSQL.translate_default(n, treq)
+    FunSQL.translate_default(n, ctx)
 end
 
 translate(cohort; dialect, model = Model(), cohort_definition_id) =
