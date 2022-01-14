@@ -2,7 +2,7 @@ name = "OHDSICohortExpressions"
 uuid = "b1469e29-13af-4897-a4a9-3c363a260582"
 authors = ["Kirill Simonov <xi@resolvent.net>",
            "Clark C. Evans <cce@clarkevans.com>"]
-version = "0.1.1"
+version = "0.1.2"
 
 [deps]
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
@@ -13,5 +13,5 @@ PrettyPrinting = "54e16d92-306c-5ea0-a30b-337be88ac337"
 [compat]
 julia = "1.4"
 FunSQL = "0.8, 0.9"
-PrettyPrinting = "0.3.2"
+PrettyPrinting = "0.3.2, 0.4"
 JSON = "0.21"
