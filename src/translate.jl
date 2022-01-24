@@ -206,9 +206,9 @@ function translate(c::PrimaryCriteria, ctx::TranslateContext)
     @assert length(c.criteria_list) >= 1
     q = translate(c.criteria_list[1], ctx)
     if length(c.criteria_list) > 1
-        list = [translate(l, ctx) for l in c.criteria_list[2:end]]
+        args = [translate(l, ctx) for l in c.criteria_list[2:end]]
         q = q |>
-            Append(list = list)
+            Append(args = args)
     end
     q = q |>
         Join(:op => ctx.model.observation_period |>
