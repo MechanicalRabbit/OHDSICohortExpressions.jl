@@ -98,6 +98,7 @@ function as_temp_table(ctx::TranslateContext, q)
         else
             "CREATE TEMP TABLE $temp_table_name AS\n$sql;\n"
         end
+    push!(ctx.statements, "DROP TABLE IF EXISTS $temp_table_name;\n")
     push!(ctx.statements, sql)
     val = From(SQLTable(temp_table_name, columns = [:person_id, :event_id, :start_date, :end_date, :sort_date, :op_start_date, :op_end_date, :visit_occurrence_id]))
     ctx.temp_map[key] = val
