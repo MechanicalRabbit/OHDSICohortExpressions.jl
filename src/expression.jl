@@ -245,9 +245,9 @@ Base.parse(::Type{CriteriaGroupType}, s::String) =
 end
 
 isempty(g::CriteriaGroup) =
-    isempty(d.correlated_criteria) &&
-    isempty(d.demographic_criteria) &&
-    isempty(d.groups)
+    isempty(g.correlated_criteria) &&
+    isempty(g.demographic_criteria) &&
+    isempty(g.groups)
 
 @enum CollapseType UNKNOWN_COLLAPSE ERA
 CollapseType(::Nothing) = UNKNOWN_COLLAPSE

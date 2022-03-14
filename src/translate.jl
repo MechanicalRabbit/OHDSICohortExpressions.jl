@@ -135,10 +135,10 @@ function translate(c::CohortExpression, ctx::TranslateContext)
     cname = cohort_table(ctx)
     push!(ctx.statements, "DELETE FROM $(cname)\nWHERE cohort_definition_id = $(ctx.cohort_definition_id);\n")
     q = translate(c.primary_criteria, ctx)
-    if c.additional_criteria !== nothing || !isempty(c.inclusion_rules)
+    if (c.additional_criteria !== nothing && !isempty(c.additional_criteria)) || !isempty(c.inclusion_rules)
         q = base = as_temp_table(ctx, q)
     end
-    if c.additional_criteria !== nothing
+    if c.additional_criteria !== nothing && !isempty(c.additional_criteria)
         q = q |>
             translate(c.additional_criteria, ctx, base = base)
         q = q |>
@@ -559,6 +559,7 @@ is_simple(c::CriteriaGroup, ctx::TranslateContext) =
     isempty(c.groups) && all(cc -> is_simple(cc, ctx), c.correlated_criteria) && ctx.dialect !== :redshift
 
 function translate(c::CriteriaGroup, ctx::TranslateContext; base::SQLNode, result_alias = nothing, inner = is_inner(c))
+    !isempty(c) || return Define()
     is_all = c.type == ALL_CRITERIA
     is_any = c.type == ANY_CRITERIA || (c.type == AT_LEAST_CRITERIA && c.count == 1)
     is_none = c.type == AT_MOST_CRITERIA && c.count == 0
