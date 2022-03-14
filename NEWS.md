@@ -1,6 +1,11 @@
 # Release Notes
 
 
+## v0.1.4
+
+* Ignore empty criteria group (fixes #3).
+
+
 ## v0.1.3
 
 * Drop temporary tables before creating them.
