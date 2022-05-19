@@ -224,7 +224,7 @@ function translate(c::PrimaryCriteria, ctx::TranslateContext)
     q = q |>
         Where(Fun.and(l .<= Get.start_date, Get.start_date .<= r))
     q = q |>
-        translate(c.primary_limit, ctx, order_by = [Get.sort_date])
+        translate(c.primary_limit, ctx, order_by = [Get.sort_date, Get.event_id])
     q
 end
 
