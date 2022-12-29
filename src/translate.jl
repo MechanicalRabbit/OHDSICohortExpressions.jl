@@ -2,44 +2,37 @@ using JSON
 using Dates
 using PrettyPrinting
 using FunSQL:
-    FunSQL, Append, Define, From, FUN, OP, Fun, FunctionNode, Get, Join,
-    LeftJoin, Select, Where, Partition, Agg, Group, As, Var, Bind, SQLNode, KW,
-    Lit, render, SQLTable
+    FunSQL, Agg, Append, As, Bind, Define, From, Fun, Get, Group, Join, LeftJoin,
+    Partition, Select, Var, Where, render, SQLClause, SQLNode, SQLTable
 
-function FunSQL.translate(::Val{:extract_year}, n::FunctionNode, ctx)
-    args = FunSQL.translate(n.args, ctx)
-    if length(args) == 1
-        if ctx.dialect.name === :sqlserver
-            return FUN(:YEAR, args[1])
-        else
-            return FUN(:EXTRACT, OP(:year), args[1] |> KW(:FROM))
-        end
+FunSQL.arity(::Val{:extract_year}) = 1:1
+
+function FunSQL.serialize!(::Val{:extract_year}, args::Vector{SQLClause}, ctx)
+    if ctx.dialect.name === :sqlserver
+        FunSQL.@serialize! "year" args ctx
+    else
+        FunSQL.@serialize! "EXTRACT(YEAR FROM ?)" args ctx
     end
-    FunSQL.translate_default(n, ctx)
 end
 
-function FunSQL.translate(::Val{:dateadd_day}, n::FunctionNode, ctx)
-    args = FunSQL.translate(n.args, ctx)
-    if length(args) == 2
-        if ctx.dialect.name === :sqlserver
-            return FUN(:DATEADD, args = [OP(:day), args[2], args[1]])
-        else
-            return OP(:+, args = [args[1], args[2]])
-        end
+FunSQL.arity(::Val{:dateadd_day}) = 2:2
+
+function FunSQL.serialize!(::Val{:dateadd_day}, args::Vector{SQLClause}, ctx)
+    if ctx.dialect.name === :sqlserver
+        FunSQL.@serialize! "dateadd(day, ?, ?)" [args[2], args[1]] ctx
+    else
+        FunSQL.@serialize! "+" args ctx
     end
-    FunSQL.translate_default(n, ctx)
 end
 
-function FunSQL.translate(::Val{:datediff_day}, n::FunctionNode, ctx)
-    args = FunSQL.translate(n.args, ctx)
-    if length(args) == 2
-        if ctx.dialect.name === :sqlserver
-            return FUN(:DATEDIFF, args = [OP(:day), args[2], args[1]])
-        else
-            return OP(:-, args = [args[1], args[2]])
-        end
+FunSQL.arity(::Val{:datediff_day}) = 2:2
+
+function FunSQL.serialize!(::Val{:datediff_day}, args::Vector{SQLClause}, ctx)
+    if ctx.dialect.name === :sqlserver
+        FunSQL.@serialize! "datediff(day, ?, ?)" [args[2], args[1]] ctx
+    else
+        FunSQL.@serialize! "-" args ctx
     end
-    FunSQL.translate_default(n, ctx)
 end
 
 translate(cohort; dialect, model = Model(), cohort_definition_id) =
@@ -705,7 +698,7 @@ function translate(c::CorrelatedCriteria, ctx::TranslateContext; base, result_al
         Group(Get.person_id, Get.event_id)
     if c.occurrence.is_distinct
         q = q |>
-            Define(:count => Agg.count(distinct = true, Get.correlated.concept_id))
+            Define(:count => Agg.count_distinct(Get.correlated.concept_id))
     else
         q = q |>
             Define(:count => Agg.count())
@@ -764,7 +757,7 @@ function predicate(c::CorrelatedCriteria, ctx::TranslateContext)
             Group()
         if c.occurrence.is_distinct
             q = q |>
-                Select(Agg.count(distinct = true, Get.correlated.concept_id))
+                Select(Agg.count_distinct(Get.correlated.concept_id))
         else
             q = q |>
                 Select(Agg.count())
