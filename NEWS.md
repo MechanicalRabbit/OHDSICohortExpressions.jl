@@ -1,6 +1,12 @@
 # Release Notes
 
 
+## v0.1.5
+
+* Fixed non-deterministic primary limit.
+* Require FunSQL >= 0.11.
+
+
 ## v0.1.4
 
 * Ignore empty criteria group (fixes #3).
