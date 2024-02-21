@@ -3,7 +3,7 @@ using Dates
 using PrettyPrinting
 using FunSQL:
     FunSQL, Agg, Append, As, Bind, Define, From, Fun, Get, Group, Join, LeftJoin,
-    Partition, Select, Var, Where, render, SQLClause, SQLNode, SQLTable
+    Partition, Select, Var, Where, render, SQLClause, SQLNode, SQLTable, ID
 
 FunSQL.arity(::Val{:extract_year}) = 1:1
 
@@ -115,10 +115,7 @@ end
 function cohort_table(ctx::TranslateContext)
     cohort = ctx.model.cohort
     d = ctx.dialect
-    if isnothing(cohort.schema) || "" == string(cohort.schema)
-        return escape_name(d, cohort.name)
-    end
-    escape_name(d, cohort.schema) * "." * escape_name(d, cohort.name)
+    render(FunSQL.SQLDialect(d), ID(cohort.qualifiers, cohort.name))
 end
 
 function translate(c::CohortExpression, ctx::TranslateContext)
