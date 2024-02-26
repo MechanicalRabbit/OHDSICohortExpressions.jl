@@ -288,6 +288,11 @@ end
     "expression" => items::Vector{ConceptSetItem} = ConceptSetItem[]
 end
 
+@unpack struct ConceptSetSelection
+    "CodesetId" => codeset_id::Int
+    "IsExclusion" => is_exclusion::Bool
+end
+
 abstract type EndStrategy end
 
 @unpack struct CustomEraStrategy <: EndStrategy
@@ -534,6 +539,19 @@ end
     "SourceId" => source_id::Union{TextFilter, Nothing} = nothing
 end
 
+@unpack struct VisitDetail <: Criteria
+    base::BaseCriteria
+    "VisitDetailStartDate" => visit_detail_start_date::Union{Date, Nothing} = nothing
+    "VisitDetailEndDate" => visit_detail_end_date::Union{Date, Nothing} = nothing
+    "VisitDetailTypeCS" => visit_detail_type_selection::Union{ConceptSetSelection, Nothing} = nothing
+    "VisitDetailSourceConcept" => visit_detail_source_concept::Union{Int, Nothing} = nothing
+    "VisitDetailLength" => visit_detail_length::Union{NumericRange, Nothing} = nothing
+    "GenderCS" => gender_selection::Union{ConceptSetSelection, Nothing} = nothing
+    "ProviderSpecialtyCS" => provider_specialty_selection::Union{ConceptSetSelection, Nothing} = nothing
+    "PlaceOfServiceCS" => place_of_service_selection::Union{ConceptSetSelection, Nothing} = nothing
+    "PlaceOfServiceLocation" => place_of_service_location::Union{Int, Nothing} = nothing
+end
+
 @unpack struct VisitOccurrence <: Criteria
     base::BaseCriteria
     "PlaceOfService" => place_of_service::Vector{Concept} = Concept[]
@@ -548,7 +566,8 @@ function unpack!(::Type{Criteria}, data::Dict)
                  DeviceExposure, DoseEra, DrugEra, DrugExposure,
                  LocationRegion, Measurement, Observation,
                  ObservationPeriod, PayerPlanPeriod,
-                 ProcedureOccurrence, Specimen, VisitOccurrence)
+                 ProcedureOccurrence, Specimen, VisitDetail,
+                 VisitOccurrence)
         key = string(nameof(type))
         if haskey(data, key)
             subdata = data[key]
