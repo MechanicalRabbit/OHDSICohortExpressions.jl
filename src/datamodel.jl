@@ -49,12 +49,22 @@ struct Model
                    results_schema = nothing,
                    target_schema = nothing,
                    target_table = nothing)
+        cdm_qualifiers = vocabulary_qualifiers = target_qualifiers = Symbol[]
+        if cdm_schema !== nothing
+            cdm_qualifiers = Symbol[cdm_schema]
+        end
+        if vocabulary_schema !== nothing
+            vocabulary_qualifiers = Symbol[vocabulary_schema]
+        end
+        if target_schema !== nothing
+            target_qualifiers = Symbol[target_schema]
+        end
         cdm_version = something(cdm_version, v"5.3.1")
         cdm_version = typeof(cdm_version) == VersionNumber ?
                           cdm_version : VersionNumber(cdm_version)
         @assert v"5.2" <= cdm_version < v"5.4"
         attribute_definition =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :attribute_definition,
                      columns = [:attribute_definition_id,
                                 :attribute_name,
@@ -62,7 +72,7 @@ struct Model
                                 :attribute_type_concept_id,
                                 :attribute_syntax])
         care_site =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :care_site,
                      columns = [:care_site_id,
                                 :care_site_name,
@@ -71,7 +81,7 @@ struct Model
                                 :care_site_source_value,
                                 :place_of_service_source_value])
         cdm_source =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :cdm_source,
                      columns = [:cdm_source_name,
                                 :cdm_source_abbreviation,
@@ -84,14 +94,14 @@ struct Model
                                 :cdm_version,
                                 :vocabulary_version])
         cohort =
-            SQLTable(schema = target_schema,
+            SQLTable(qualifiers = target_qualifiers,
                      name = something(target_table, :cohort),
                      columns = [:cohort_definition_id,
                                 :subject_id,
                                 :cohort_start_date,
                                 :cohort_end_date])
         cohort_attribute =
-            SQLTable(schema = target_schema,
+            SQLTable(qualifiers = target_qualifiers,
                      name = :cohort_attribute,
                      columns = [:cohort_definition_id,
                                 :subject_id,
@@ -101,7 +111,7 @@ struct Model
                                 :value_as_number,
                                 :value_as_concept_id])
         cohort_definition =
-            SQLTable(schema = target_schema,
+            SQLTable(qualifiers = target_qualifiers,
                      name = :cohort_definition,
                      columns = [:cohort_definition_id,
                                 :cohort_definition_name,
@@ -111,7 +121,7 @@ struct Model
                                 :subject_concept_id,
                                 :cohort_initiation_date])
         concept =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :concept,
                      columns = [:concept_id,
                                 :concept_name,
@@ -124,20 +134,20 @@ struct Model
                                 :valid_end_date,
                                 :invalid_reason])
         concept_ancestor =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :concept_ancestor,
                      columns = [:ancestor_concept_id,
                                 :descendant_concept_id,
                                 :min_levels_of_separation,
                                 :max_levels_of_separation])
         concept_class =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :concept_class,
                      columns = [:concept_class_id,
                                 :concept_class_name,
                                 :concept_class_concept_id])
         concept_relationship =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :concept_relationship,
                      columns = [:concept_id_1,
                                 :concept_id_2,
@@ -146,13 +156,13 @@ struct Model
                                 :valid_end_date,
                                 :invalid_reason])
         concept_synonym =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :concept_synonym,
                      columns = [:concept_id,
                                 :concept_synonym_name,
                                 :language_concept_id])
         condition_era =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :condition_era,
                      columns = [:condition_era_id,
                                 :person_id,
@@ -162,7 +172,7 @@ struct Model
                                 :condition_occurrence_count])
         condition_occurrence =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :condition_occurrence,
                          columns = [:condition_occurrence_id,
                                     :person_id,
@@ -180,7 +190,7 @@ struct Model
                                     :condition_status_source_value,
                                     :condition_status_concept_id])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :condition_occurrence,
                          columns = [:condition_occurrence_id,
                                     :person_id,
@@ -200,7 +210,7 @@ struct Model
                                     :condition_status_concept_id])
             end
         cost =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :cost,
                      columns = [:cost_id,
                                 :cost_event_id,
@@ -226,7 +236,7 @@ struct Model
                                 :drg_source_value])
 
         death =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :death,
                      columns = [:person_id,
                                 :death_date,
@@ -237,7 +247,7 @@ struct Model
                                 :cause_source_concept_id])
         device_exposure =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :device_exposure,
                          columns = [:device_exposure_id,
                                     :person_id,
@@ -254,7 +264,7 @@ struct Model
                                     :device_source_value,
                                     :device_source_concept_id])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :device_exposure,
                          columns = [:device_exposure_id,
                                     :person_id,
@@ -273,13 +283,13 @@ struct Model
                                     :device_source_concept_id])
             end
         domain =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :domain,
                      columns = [:domain_id,
                                 :domain_name,
                                 :domain_concept_id])
         dose_era =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :dose_era,
                      columns = [:dose_era_id,
                                 :person_id,
@@ -289,7 +299,7 @@ struct Model
                                 :dose_era_start_date,
                                 :dose_era_end_date])
         drug_era =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :drug_era,
                      columns = [:drug_era_id,
                                 :person_id,
@@ -300,7 +310,7 @@ struct Model
                                 :gap_days])
         drug_exposure =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :drug_exposure,
                          columns = [:drug_exposure_id,
                                     :person_id,
@@ -325,7 +335,7 @@ struct Model
                                     :route_source_value,
                                     :dose_unit_source_value])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :drug_exposure,
                          columns = [:drug_exposure_id,
                                     :person_id,
@@ -352,7 +362,7 @@ struct Model
                                     :dose_unit_source_value])
             end
         drug_strength =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :drug_strength,
                      columns = [:drug_concept_id,
                                 :ingredient_concept_id,
@@ -367,7 +377,7 @@ struct Model
                                 :valid_end_date,
                                 :invalid_reason])
         fact_relationship =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :fact_relationship,
                      columns = [:domain_concept_id_1,
                                 :fact_id_1,
@@ -375,7 +385,7 @@ struct Model
                                 :fact_id_2,
                                 :relationship_concept_id])
         location =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :location,
                      columns = [:location_id,
                                 :address_1,
@@ -387,7 +397,7 @@ struct Model
                                 :location_source_value])
         measurement =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :measurement,
                          columns = [:measurement_id,
                                     :person_id,
@@ -408,7 +418,7 @@ struct Model
                                     :unit_source_value,
                                     :value_source_value])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :measurement,
                          columns = [:measurement_id,
                                     :person_id,
@@ -435,7 +445,7 @@ struct Model
             if cdm_version < v"5.3"
                 nothing
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :metadata,
                          columns = [:metadata_concept_id,
                                     :metadata_type_concept_id,
@@ -447,7 +457,7 @@ struct Model
             end
         note =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :note,
                          columns = [:note_id,
                                     :person_id,
@@ -463,7 +473,7 @@ struct Model
                                     :visit_occurrence_id,
                                     :note_source_value])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :note,
                          columns = [:note_id,
                                     :person_id,
@@ -481,7 +491,7 @@ struct Model
                                     :note_source_value])
             end
         note_nlp =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :note_nlp,
                      columns = [:note_nlp_id,
                                 :note_id,
@@ -499,7 +509,7 @@ struct Model
                                 :term_modifiers])
         observation =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :observation,
                          columns = [:observation_id,
                                     :person_id,
@@ -519,7 +529,7 @@ struct Model
                                     :unit_source_value,
                                     :qualifier_source_value])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :observation,
                          columns = [:observation_id,
                                     :person_id,
@@ -541,7 +551,7 @@ struct Model
                                     :qualifier_source_value])
             end
         observation_period =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :observation_period,
                      columns = [:observation_period_id,
                                 :person_id,
@@ -550,7 +560,7 @@ struct Model
                                 :period_type_concept_id])
         payer_plan_period =
             if cdm_version < v"5.3"
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :payer_plan_period,
                          columns = [:payer_plan_period_id,
                                     :person_id,
@@ -560,7 +570,7 @@ struct Model
                                     :plan_source_value,
                                     :family_source_value])
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :payer_plan_period,
                          columns = [:payer_plan_period_id,
                                     :person_id,
@@ -581,7 +591,7 @@ struct Model
                                     :stop_reason_source_concept_id])
             end
         person =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :person,
                      columns = [:person_id,
                                 :gender_concept_id,
@@ -636,7 +646,7 @@ struct Model
                                     :modifier_source_value])
             end
         provider =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :provider,
                      columns = [:provider_id,
                                 :provider_name,
@@ -652,7 +662,7 @@ struct Model
                                 :gender_source_value,
                                 :gender_source_concept_id])
         relationship =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :relationship,
                      columns = [:relationship_id,
                                 :relationship_name,
@@ -661,7 +671,7 @@ struct Model
                                 :reverse_relationship_id,
                                 :relationship_concept_id])
         source_to_concept_map =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :source_to_concept_map,
                      columns = [:source_code,
                                 :source_concept_id,
@@ -673,7 +683,7 @@ struct Model
                                 :valid_end_date,
                                 :invalid_reason])
         specimen =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :specimen,
                      columns = [:specimen_id,
                                 :person_id,
@@ -694,7 +704,7 @@ struct Model
             if cdm_version < v"5.3"
                 nothing
             else
-                SQLTable(schema = cdm_schema,
+                SQLTable(qualifiers = cdm_qualifiers,
                          name = :visit_detail,
                          columns = [:visit_detail_id,
                                     :person_id,
@@ -717,7 +727,7 @@ struct Model
                                     :visit_occurrence_id])
             end
         visit_occurrence =
-            SQLTable(schema = cdm_schema,
+            SQLTable(qualifiers = cdm_qualifiers,
                      name = :visit_occurrence,
                      columns = [:visit_occurrence_id,
                                 :person_id,
@@ -737,7 +747,7 @@ struct Model
                                 :discharge_to_source_value,
                                 :preceding_visit_occurrence_id])
         vocabulary =
-            SQLTable(schema = vocabulary_schema,
+            SQLTable(qualifiers = vocabulary_qualifiers,
                      name = :vocabulary,
                      columns = [:vocabulary_id,
                                 :vocabulary_name,
