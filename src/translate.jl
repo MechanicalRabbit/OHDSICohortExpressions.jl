@@ -35,7 +35,7 @@ end
 function FunSQL.resolve(n::SwitchByDialectNode, ctx)
     q = n.default
     for (i, case) in enumerate(n.cases)
-        if case === ctx.dialect.name
+        if case === ctx.catalog.dialect.name
             q = n.branches[i]
             break
         end
@@ -50,7 +50,7 @@ end
 function FunSQL.resolve_scalar(n::SwitchByDialectNode, ctx)
     q = n.default
     for (i, case) in enumerate(n.cases)
-        if case === ctx.dialect.name
+        if case === ctx.catalog.dialect.name
             q = n.branches[i]
             break
         end
