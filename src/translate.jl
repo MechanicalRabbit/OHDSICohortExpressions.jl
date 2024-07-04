@@ -62,6 +62,15 @@ function FunSQL.resolve_scalar(n::SwitchByDialectNode, ctx)
     FunSQL.resolve_scalar(q, ctx)
 end
 
+p2e(p) =
+    SwitchByDialect(cases = [:sqlserver], branches = [Fun.case(p, 1, 0)], default = p)
+
+force_p2e(p) =
+    SwitchByDialect(cases = [:sqlserver], branches = [p], default = Fun.case(p, 1, 0))
+
+e2p(e) =
+    SwitchByDialect(cases = [:sqlserver], branches = [e .!= 0], default = e)
+
 FunSQL.arity(::Val{:extract_year}) = 1:1
 
 function FunSQL.serialize!(::Val{:extract_year}, args::Vector{SQLClause}, ctx)
@@ -738,14 +747,14 @@ function translate(c::CriteriaGroup; name = nothing)
     end
     if !(name === nothing && is_all)
         if is_all
-            p = Fun.and(args = args)
+            p = Fun.and(args = e2p.(args))
         elseif is_any
-            p = Fun.or(args = args)
+            p = Fun.or(args = e2p.(args))
         elseif is_none
-            args = [Fun.not(arg) for arg in args]
+            args = [Fun.not(e2p(arg)) for arg in args]
             p = Fun.and(args = args)
         else
-            args = [Fun.case(arg, 1, 0) for arg in args]
+            args = [force_p2e(arg) for arg in args]
             n = length(args) > 1 ? Fun."+"(args = args) : args[1]
             @assert c.type in (AT_MOST_CRITERIA, AT_LEAST_CRITERIA)
             if c.type == AT_MOST_CRITERIA
@@ -756,7 +765,7 @@ function translate(c::CriteriaGroup; name = nothing)
         end
         if name !== nothing
             q = q |>
-                Define(name => p)
+                Define(name => p2e(p))
         else
             q = q |>
                 Where(p)
@@ -781,7 +790,7 @@ function translate(d::DemographicCriteria; name = nothing)
     end
     p = Fun.and(args = args)
     if name !== nothing
-        q = Define(name => p)
+        q = Define(name => p2e(p))
     else
         q = Where(p)
     end
@@ -815,7 +824,7 @@ function translate(c::CorrelatedCriteria; name = nothing)
             Where(Agg.row_number() .== 1)
         if name !== nothing
             q = q |>
-                Define(name => Fun."is not null"(Get.correlated.event_id))
+                Define(name => p2e(Fun."is not null"(Get.correlated.event_id)))
         end
         return q
     end
@@ -824,7 +833,7 @@ function translate(c::CorrelatedCriteria; name = nothing)
             q = q |>
                 Partition(Get.row_number, order_by = [Get.row_number]) |>
                 Where(Agg.row_number() .== 1) |>
-                Define(name => Fun."is null"(Get.correlated.event_id))
+                Define(name => p2e(Fun."is null"(Get.correlated.event_id)))
         else
             q = q |>
                 Where(Fun."is null"(Get.correlated.event_id))
@@ -856,7 +865,7 @@ function translate(c::CorrelatedCriteria; name = nothing)
     end
     if name !== nothing
         q = q |>
-            Define(name => p)
+            Define(name => p2e(p))
     else
         q = q |>
             Where(p)
