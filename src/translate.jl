@@ -840,20 +840,24 @@ function translate(c::CorrelatedCriteria; name = nothing)
         end
         return q
     end
-    q = q |>
-        Partition(Get.row_number, order_by = [Get.row_number]) |>
-        Where(Agg.row_number() .== 1)
     if c.occurrence.is_distinct
         value = Get.concept_id
         if c.occurrence.count_column == "START_DATE"
             value = Get.start_date
         end
+        count = Agg.max(Agg.dense_rank())
+        if left
+            count = Fun.case(Fun."is not null"(Get.correlated.event_id), count, 0)
+        end
         q = q |>
-            Define(:count => SwitchByDialect(cases = [:spark],
-                                             branches = [Fun.size(Agg.collect_set(Get.correlated |> value))],
-                                             default = Agg.count_distinct(Get.correlated |> value)))
+            Partition(Get.row_number, order_by = [Get.correlated |> value]) |>
+            Partition(Get.row_number, order_by = [Get.row_number]) |>
+            Where(Agg.row_number() .== 1) |>
+            Define(:count => count)
     else
         q = q |>
+            Partition(Get.row_number, order_by = [Get.row_number]) |>
+            Where(Agg.row_number() .== 1) |>
             Define(:count => Agg.count(Get.correlated.event_id))
     end
     if c.occurrence.type == AT_LEAST
