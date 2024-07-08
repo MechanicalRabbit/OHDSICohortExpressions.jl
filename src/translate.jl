@@ -138,9 +138,10 @@ function translate(c::CohortExpression; cohort_definition_id = 0)
                      Fun.and(Get.person_id .== Get.censoring.person_id,
                              Get.start_date .<= Get.censoring.start_date,
                              Get.op_end_date .>= Get.censoring.start_date)) |>
+            Partition(Get.row_number, name = :min) |>
             Partition(Get.row_number, order_by = [Get.row_number]) |>
             Where(Agg.row_number() .== 1) |>
-            Define(:end_date => Fun.least(Get.end_date, Agg.min(Get.censoring.start_date)))
+            Define(:end_date => Fun.least(Get.end_date, Agg.min(Get.censoring.start_date, over = Get.min)))
     end
     q = q |>
         translate(c.collapse_settings)
@@ -298,11 +299,11 @@ function translate(d::Death)
     @assert !d.death_type_exclude
     q = From(:death) |>
         Define(:concept_id => Get.cause_concept_id,
-               :event_id => 0,
+               :event_id => SwitchByDialect(cases = [:sqlserver], branches = [Get.person_id], default = 0),
                :start_date => Get.death_date,
                :end_date => dateadd_day(Get.death_date, 1),
                :sort_date => Get.death_date,
-               :visit_occurrence_id => 0)
+               :visit_occurrence_id => SwitchByDialect(cases = [:sqlserver], branches = [Get.person_id], default = 0))
     if d.death_source_concept !== nothing
         q = q |>
             Where(Fun.in(Get.cause_source_concept_id,
@@ -845,20 +846,22 @@ function translate(c::CorrelatedCriteria; name = nothing)
         if c.occurrence.count_column == "START_DATE"
             value = Get.start_date
         end
-        count = Agg.max(Agg.dense_rank())
+        count = Agg.max(Agg.dense_rank(), over = Get.count)
         if left
             count = Fun.case(Fun."is not null"(Get.correlated.event_id), count, 0)
         end
         q = q |>
             Partition(Get.row_number, order_by = [Get.correlated |> value]) |>
+            Partition(Get.row_number, name = :count) |>
             Partition(Get.row_number, order_by = [Get.row_number]) |>
             Where(Agg.row_number() .== 1) |>
             Define(:count => count)
     else
         q = q |>
+            Partition(Get.row_number, name = :count) |>
             Partition(Get.row_number, order_by = [Get.row_number]) |>
             Where(Agg.row_number() .== 1) |>
-            Define(:count => Agg.count(Get.correlated.event_id))
+            Define(:count => Agg.count(Get.correlated.event_id, over = Get.count))
     end
     if c.occurrence.type == AT_LEAST
         p = Get.count .>= c.occurrence.count
