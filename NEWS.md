@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.2.0
+
+* Support for Spark/Databricks.
+* Change the translation API.  Instead of generating SQL that updates the
+  `cohort` table, translate a cohort definition into a FunSQL query that
+  returns the cohort as a query output.
+* Require FunSQL >= 0.14.
+
 
 ## v0.1.5
 
