@@ -6,20 +6,17 @@
 [![Open Issues][issues-img]][issues-url]
 [![Apache License][license-img]][license-url]
 
-This is a proof-of-concept implementation of a conversion from the JSON
+This is an alpha-quality implementation of a conversion from the JSON
 cohort definitions used in the OHDSI ecosystem into an SQL transaction.
 
 ### Project Status
 
-At this time, this implementation is able to convert all 797 cohorts
-from PhenotypeLibrary v0.1 to generate SQL that works against Amazon
-RedShift, Microsoft SQL Server, and PostgreSQL.
-
-There are significant gaps in functionality. Many expressions available
-in the JSON cohort definition have yet to be translated. In these cases,
-an assertion error should arise. We have yet to write documentation,
-perform code review, or construct regression tests. The API is in a
-provisional form and very likely to change.
+This project has only implemented a subset of the OHDSI Circe format
+which we are able to verify via the OHDSI PhentotypeLibrary. Other
+permutations are left as an `assert` error. If you encounter one of
+these, you could [open][issue-gap] a gap issue. We've not implemented
+these permutations since it's important to have a regression test,
+therefore providing an example cohort definition and results is helpful.
 
 ### Example Usage
 
@@ -69,3 +66,4 @@ df = DataFrame(cr)
 [issues-url]: https://github.com/MechanicalRabbit/OHDSICohortExpressions.jl/issues
 [license-img]: https://img.shields.io/badge/license-Apache-blue.svg
 [license-url]: https://raw.githubusercontent.com/MechanicalRabbit/OHDSICohortExpressions.jl/master/LICENSE
+[issue-gap]: https://github.com/MechanicalRabbit/OHDSICohortExpressions.jl/issues/new?assignees=&labels=Circe+Fields&projects=&template=implement-circe-query-permutation.md&title=Implement+Circe+Parameter%3A+...
