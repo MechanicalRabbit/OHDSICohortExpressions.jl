@@ -23,73 +23,41 @@ provisional form and very likely to change.
 
 ### Example Usage
 
-Following is an example given the `demo/ex-10-2.json` cohort. This
-corresponds to [excercise 10.2][ex-10-2] from the Book of OHDSI.
-Supported dialects are `:redshift`, `:sqlserver`, and `:postgresql`.
+First, load or generate a cohort definition in OHDSI Circe format.
+In this example, we load the cohort definition from `demo/ex-10-2.json`,
+which corresponds to [excercise 10.2][ex-10-2] from the Book of OHDSI.
 
 ```julia
-julia> cohort = read("demo/ex-10-2.json", String)
-
-julia> using OHDSICohortExpressions: translate, Model
-
-julia> model = Model(cdm_version=v"5.3.1", cdm_schema="cdm",
-                     vocabulary_schema="vcb", results_schema="res",
-                     target_schema="res", target_table="cohort");
-
-julia> tsql = translate(cohort, dialect=:sqlserver, model=model,
-                         cohort_definition_id=1);
-
-julia> println(tsql)
+cohort_definition = read("demo/ex-10-2.json", String)
 ```
 
-The return value, `tsql` is a SQL string with a transaction that
-populates the `cohort` table for cohort definition `1`.
+Next, use `OHDSICohortExpressions.translate()` to convert this cohort
+definition to a FunSQL query object.
 
-### Usage from "R"
+```julia
+using OHDSICohortExpressions: translate
 
-Using [JuliaCall][julia-call] library, one could call this function from
-"R". First, one must install `JuliaCall`.
-
-```R
-> install.packages("JuliaCall")
+q = translate(cohort_definition, cohort_definition_id = 1)
 ```
 
-You could then initialize the Julia environment, and install this
-library to the Julia environment.
+Run `DBInterface.connect()` to create a connection to an OMOP CDM database.
+The arguments of `DBInterface.connect()` depend on the database engine and
+connection parameters.  Consult FunSQL documentation for more information.
 
-```R
-> library("JuliaCall")
-> julia_setup(installJulia = TRUE)
-> julia_install_package_if_needed("OHDSICohortExpressions")
+```julia
+using FunSQL, DBInterface
+
+db = DBInterface.connect(FunSQL.SQLConnection{ … }, … )
 ```
 
-Construct an "R" proxy, `oce`, to the `Model` and `translate` functions.
+Execute the query to return the corresponding cohort.
 
-```R
-> oce <- julia_pkg_import("OHDSICohortExpressions",
-                          func_list = c("Model", "translate"))
-```
+```julia
+using DataFrames
 
-Construct a `model` object with data model parameters.
+cr = DBInterface.execute(db, q)
 
-```R
-> model = oce$Model(cdm_version="5.3.1", cdm_schema="cdm",
-                    vocabulary_schema="vcb", results_schema="res",
-                    target_schema="res", target_table="cohort")
-```
-
-Read the `cohort` file into an R variable.
-
-```R
-> library("readr")
-> cohort <- read_file("demo/ex-10-2.json")
-```
-
-Translate this cohort definition into the SQL transaction.
-
-```R
-> tsql = oce$translate(cohort, dialect="sqlserver", model=model,
-                       cohort_definition_id=1)
+df = DataFrame(cr)
 ```
 
 [julia]: https://julialang.org/downloads/
